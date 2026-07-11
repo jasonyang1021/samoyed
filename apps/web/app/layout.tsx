@@ -1,6 +1,7 @@
 import "./globals.css";
-import Link from "next/link";
 import type { ReactNode } from "react";
+import AuthMenu from "./AuthMenu";
+import LocaleRuntime from "./LocaleRuntime";
 
 export const metadata = { title: "AI Research Radar", description: "AI-powered research change radar" };
 
@@ -9,10 +10,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="zh-CN">
       <body>
         <nav className="nav">
-          <Link className="brand" href="/"><span className="brandMark">AI</span><strong>AI Research Radar</strong></Link>
-          <div className="topLinks"><Link href="/">Dashboard</Link><Link href="/labs/lab-glass-core">My Lab</Link></div>
+          <a className="brand" href="/"><span className="brandMark">AI</span><strong>AI Research Radar</strong></a>
+          <AuthMenu />
         </nav>
         <main className="shell">{children}</main>
+        <LocaleRuntime />
       </body>
     </html>
   );

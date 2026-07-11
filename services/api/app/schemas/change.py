@@ -11,6 +11,7 @@ class EvidenceRead(BaseModel):
     source_title: str
     evidence_text: str
     url: Optional[str] = None
+    document_id: Optional[str] = None
 
 
 class ChangeCard(BaseModel):
@@ -26,6 +27,7 @@ class ChangeCard(BaseModel):
     affected_labs: list[str]
     watch_items: list[str]
     detected_at: datetime
+    published_at: Optional[datetime] = None
 
 
 class ChangeDetail(ChangeCard):
@@ -36,3 +38,5 @@ class LabChangeCard(ChangeCard):
     why_relevant: str
     impact: str
     lab_next_watch_points: list[str]
+    ai_generated: bool = False
+    ai_provider: str = "rule_based"

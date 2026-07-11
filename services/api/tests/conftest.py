@@ -7,6 +7,7 @@ from app.db.database import Base, get_db
 from app.db.models import Change, EntityState, Lab, LabChangeInterpretation, LabProfile, Source, WatchItem
 from app.db.seed import seed_database
 from app.main import app
+from app.api.routes import require_admin
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +31,7 @@ def test_database():
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[require_admin] = lambda: None
     yield
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)
