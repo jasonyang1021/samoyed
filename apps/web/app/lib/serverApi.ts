@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import type { AIStatus, AuthUser, Lab, LabInvitation, LabMembership, RadarRun, ScheduleSettings, SourceRecord, WatchItem } from "./api";
 
-const base = process.env.API_INTERNAL_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const base = process.env.API_INTERNAL_BASE_URL ?? "http://localhost:8000";
 
 async function serverGet<T>(path: string): Promise<T> {
   const cookieStore = await cookies();

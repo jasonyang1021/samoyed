@@ -12,8 +12,46 @@ from app.db.models import Analysis, Change, Document, Lab, LabChangeInterpretati
 from app.services.ai_gateway import AIUnavailableError, active_provider, call_ai_json
 
 
-KEYWORDS = ("glass core", "glass-core", "tgv", "through glass via", "advanced packaging", "hbm")
-DOMAIN_TERMS = ("substrate", "tgv", "through glass via", "advanced packaging", "interconnect", "reliability", "warpage", "semiconductor", "hbm", "package", "packaging")
+KEYWORDS = (
+    "glass core",
+    "glass-core",
+    "tgv",
+    "through glass via",
+    "advanced packaging",
+    "hbm",
+    "high bandwidth memory",
+    "cpo",
+    "co-packaged optics",
+    "optical interconnect",
+    "pcb",
+    "printed circuit board",
+    "mlcc",
+    "multilayer ceramic capacitor",
+)
+DOMAIN_TERMS = (
+    "substrate",
+    "tgv",
+    "through glass via",
+    "advanced packaging",
+    "interconnect",
+    "reliability",
+    "warpage",
+    "semiconductor",
+    "hbm",
+    "high bandwidth memory",
+    "cpo",
+    "co-packaged optics",
+    "optical",
+    "photonics",
+    "pcb",
+    "printed circuit",
+    "laminate",
+    "signal integrity",
+    "mlcc",
+    "ceramic capacitor",
+    "package",
+    "packaging",
+)
 
 AI_ANALYSIS_SCHEMA = {
     "type": "object",
@@ -40,7 +78,7 @@ def _ai_analyze(document: Document, watched_names: list[str]) -> dict[str, objec
     if active_provider() == "rule_based":
         return None
     prompt = f"""You are the senior analyst for AI Research Radar.
-Analyze this public research item for a Glass Core Lab. Do not invent facts. Treat the supplied text as the source of truth.
+Analyze this public research item for AI hardware research labs covering Glass Core, PCB, CPO, MLCC, HBM, advanced packaging, interconnect, reliability, and thermal/system integration. Do not invent facts. Treat the supplied text as the source of truth.
 Followed entities: {', '.join(watched_names) or 'none'}
 Title: {document.title}
 Authors: {', '.join(document.authors or []) or 'not provided'}
@@ -49,7 +87,7 @@ URL: {document.canonical_url}
 Content:
 {document.content_text[:12000]}
 
-Decide whether it is materially relevant to glass substrates, glass core, TGV, advanced packaging, reliability, interconnects, HBM or adjacent semiconductor packaging. Return concise Chinese text for the summary and all judgment fields. Keep extracted_facts to at most three items. Relevance score must be between 0 and 1."""
+Decide whether it is materially relevant to any followed AI hardware lab topic, including glass substrates, PCB materials, CPO/optical interconnect, MLCC/passives, HBM/memory packaging, advanced packaging, reliability, interconnects, cooling, or adjacent semiconductor packaging. Return concise Chinese text for the summary and all judgment fields. Keep extracted_facts to at most three items. Relevance score must be between 0 and 1."""
     try:
         result = call_ai_json(prompt, "research_radar_analysis", AI_ANALYSIS_SCHEMA)
         result["relevance_score"] = max(0.0, min(0.99, float(result["relevance_score"])))
@@ -82,7 +120,7 @@ LAB_SIGNAL_RULES = {
     "lab-glass-core": ("glass", "tgv", "through glass via", "glass core", "substrate", "warpage"),
     "lab-cpo": ("cpo", "co-packaged optics", "optical interconnect", "photonic", "emib-t"),
     "lab-pcb": ("pcb", "printed circuit", "laminate", "signal integrity", "package substrate", "warpage"),
-    "lab-cc": ("cooling", "thermal", "compute", "hbm", "interconnect", "high bandwidth"),
+    "lab-cc": ("cooling", "thermal", "compute", "hbm", "high bandwidth memory", "mlcc", "interconnect", "high bandwidth"),
     "lab-fujii": ("reliability", "materials", "advanced packaging", "tgv", "semiconductor packaging"),
 }
 

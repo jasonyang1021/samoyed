@@ -33,6 +33,12 @@ from app.services.auth import create_session, exchange_google_code, google_autho
 router = APIRouter()
 
 
+def _cross_site_cookie() -> bool:
+    frontend = settings.frontend_url.rstrip("/")
+    callback_origin = settings.google_redirect_uri.split("/api/auth/google/callback", 1)[0].rstrip("/")
+    return frontend.startswith("https://") and callback_origin.startswith("https://") and frontend != callback_origin
+
+
 def _current_user(request: Request) -> dict | None:
     return read_session(request.cookies.get("radar_session"))
 
@@ -79,8 +85,16 @@ def google_callback(code: str, state: str, request: Request, db: Session = Depen
         raise HTTPException(status_code=502, detail="Google login failed") from error
     stored_user = sync_user(db, user)
     response = RedirectResponse(settings.frontend_url, status_code=302)
-    response.set_cookie("radar_session", create_session(session_profile(stored_user)), httponly=True, secure=False, samesite="lax", max_age=60 * 60 * 24 * 7)
-    response.delete_cookie("radar_oauth_state")
+    cross_site = _cross_site_cookie()
+    response.set_cookie(
+        "radar_session",
+        create_session(session_profile(stored_user)),
+        httponly=True,
+        secure=cross_site,
+        samesite="none" if cross_site else "lax",
+        max_age=60 * 60 * 24 * 7,
+    )
+    response.delete_cookie("radar_oauth_state", samesite="lax")
     return response
 
 
@@ -103,7 +117,8 @@ def auth_me(request: Request, db: Session = Depends(get_db)) -> AuthUserRead:
 
 @router.post("/api/auth/logout")
 def auth_logout(response: Response) -> dict[str, bool]:
-    response.delete_cookie("radar_session")
+    cross_site = _cross_site_cookie()
+    response.delete_cookie("radar_session", secure=cross_site, samesite="none" if cross_site else "lax")
     return {"ok": True}
 
 

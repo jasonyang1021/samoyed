@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 type AuthUser = { authenticated: boolean; email?: string | null; name?: string | null; picture?: string | null; role: string; oauth_configured?: boolean; lab_ids?: string[]; lab_names?: string[] };
 
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export default function AuthMenu() {
   const [user, setUser] = useState<AuthUser | null>(null);

@@ -29,6 +29,7 @@ def seed_database(db: Session) -> None:
         WatchItem(id="topic-pcb", kind="topic", name="PCB", description="高速高频 PCB、材料与信号完整性"),
         WatchItem(id="topic-cc", kind="topic", name="Compute & Connectivity", description="计算、连接、带宽与系统散热"),
         WatchItem(id="topic-hbm", kind="topic", name="HBM", description="高带宽存储与先进封装"),
+        WatchItem(id="topic-mlcc", kind="topic", name="MLCC", description="AI 服务器与高端硬件用多层陶瓷电容"),
         WatchItem(id="topic-cooling", kind="topic", name="Cooling", description="AI 芯片散热与热管理"),
         WatchItem(id="company-intel", kind="company", name="Intel", description="芯片制造与 Glass Core 路线"),
         WatchItem(id="company-micron", kind="company", name="Micron", description="HBM、存储封装与先进封装路线"),
@@ -56,8 +57,8 @@ def seed_database(db: Session) -> None:
     lab_watch_items = {
         "lab-cpo": ["topic-cpo", "company-intel", "conference-ectc"],
         "lab-glass-core": ["topic-glass-core", "company-intel", "company-samsung", "company-absolics", "conference-ectc"],
-        "lab-pcb": ["topic-pcb", "company-intel", "conference-ectc"],
-        "lab-cc": ["topic-cc", "topic-hbm", "topic-cooling"],
+        "lab-pcb": ["topic-pcb", "topic-mlcc", "company-intel", "conference-ectc"],
+        "lab-cc": ["topic-cc", "topic-hbm", "topic-mlcc", "topic-cooling"],
         "lab-fujii": ["topic-glass-core", "university-tokyo", "university-mit"],
     }
     for lab_id, item_ids in lab_watch_items.items():
@@ -183,6 +184,54 @@ def seed_database(db: Session) -> None:
             raw_metadata={"seed": True, "format": "rss"},
         ),
         Source(
+            id="src-arxiv-cpo-optical-interconnect",
+            source_type="paper_feed",
+            title="arXiv · CPO / Optical Interconnect research",
+            url="https://export.arxiv.org/api/query?search_query=all:%22co-packaged%20optics%22%20OR%20all:%22optical%20interconnect%22%20OR%20all:%22silicon%20photonics%22&start=0&max_results=50&sortBy=submittedDate&sortOrder=descending",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "arxiv"},
+        ),
+        Source(
+            id="src-arxiv-hbm-packaging",
+            source_type="paper_feed",
+            title="arXiv · HBM / memory packaging research",
+            url="https://export.arxiv.org/api/query?search_query=all:%22high%20bandwidth%20memory%22%20OR%20all:HBM%20OR%20all:%22memory%20packaging%22&start=0&max_results=50&sortBy=submittedDate&sortOrder=descending",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "arxiv"},
+        ),
+        Source(
+            id="src-google-news-cpo",
+            source_type="news_feed",
+            title="Google News · CPO / optical interconnect · 2026",
+            url="https://news.google.com/rss/search?q=%28%22co-packaged%20optics%22%20OR%20CPO%20OR%20%22optical%20interconnect%22%20OR%20%22silicon%20photonics%22%29%20after%3A2025-12-31%20before%3A2027-01-01&hl=en-US&gl=US&ceid=US%3Aen",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "rss"},
+        ),
+        Source(
+            id="src-google-news-pcb",
+            source_type="news_feed",
+            title="Google News · PCB / high-speed laminate · 2026",
+            url="https://news.google.com/rss/search?q=%28PCB%20OR%20%22printed%20circuit%20board%22%20OR%20%22high-speed%20laminate%22%20OR%20%22package%20substrate%22%29%20after%3A2025-12-31%20before%3A2027-01-01&hl=en-US&gl=US&ceid=US%3Aen",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "rss"},
+        ),
+        Source(
+            id="src-google-news-mlcc",
+            source_type="news_feed",
+            title="Google News · MLCC / AI server passives · 2026",
+            url="https://news.google.com/rss/search?q=%28MLCC%20OR%20%22multilayer%20ceramic%20capacitor%22%20OR%20%22ceramic%20capacitor%22%29%20%28AI%20OR%20server%20OR%20semiconductor%29%20after%3A2025-12-31%20before%3A2027-01-01&hl=en-US&gl=US&ceid=US%3Aen",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "rss"},
+        ),
+        Source(
+            id="src-google-news-hbm",
+            source_type="news_feed",
+            title="Google News · HBM / advanced memory · 2026",
+            url="https://news.google.com/rss/search?q=%28HBM%20OR%20%22high%20bandwidth%20memory%22%20OR%20HBM4%20OR%20HBM3E%29%20after%3A2025-12-31%20before%3A2027-01-01&hl=en-US&gl=US&ceid=US%3Aen",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "rss"},
+        ),
+        Source(
             id="src-google-news-patents",
             source_type="patent_feed",
             title="Google News · Glass substrate patents · 2026",
@@ -207,6 +256,9 @@ def seed_database(db: Session) -> None:
             existing_source.url = source.url
             existing_source.raw_metadata = source.raw_metadata
         elif source.id in {"src-openalex-glass-packaging", "src-google-news-glass"}:
+            existing_source.url = source.url
+            existing_source.raw_metadata = source.raw_metadata
+        elif source.id.startswith(("src-arxiv-cpo", "src-arxiv-hbm", "src-google-news-cpo", "src-google-news-pcb", "src-google-news-mlcc", "src-google-news-hbm")):
             existing_source.url = source.url
             existing_source.raw_metadata = source.raw_metadata
 

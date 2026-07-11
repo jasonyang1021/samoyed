@@ -312,7 +312,21 @@ main.shell > .labChangeList { width: 100%; max-width: none; margin-left: 0; marg
 .membershipRow strong { color: #252a33; font-size: 14px; }
 .membershipRow small { margin-top: 4px; color: #7b8490; font-size: 12px; }
 .membershipRow select { min-width: 132px; padding: 8px 10px; border: 1px solid #dfe2e8; border-radius: 7px; background: #fff; color: #3c4652; }
-@media (max-width: 600px) { .membershipPanel { padding: 18px; } .membershipRow { align-items: flex-start; flex-direction: column; } .membershipRow select { width: 100%; } }
+.membershipTable { overflow: hidden; border: 1px solid #e3e6eb; border-radius: 8px; background: #e3e6eb; }
+.membershipTableHead, .membershipUserRow { display: grid; grid-template-columns: minmax(190px, .8fr) minmax(0, 1.4fr); gap: 1px; }
+.membershipTableHead { background: #eef0f3; color: #7b8490; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.membershipTableHead span { padding: 10px 14px; }
+.membershipUserRow { background: #e3e6eb; }
+.membershipUserRow + .membershipUserRow { border-top: 1px solid #e3e6eb; }
+.memberIdentity, .memberLabGrid { background: #fff; }
+.memberIdentity { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 14px 16px; }
+.memberIdentity strong { overflow: hidden; color: #252a33; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.memberIdentity small { overflow: hidden; margin-top: 4px; color: #7b8490; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.memberLabGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; padding: 12px; }
+.memberLabRole { display: grid; grid-template-columns: minmax(0, 1fr) 126px; align-items: center; gap: 9px; min-height: 38px; padding: 8px 10px; border: 1px solid #edf0f3; border-radius: 7px; background: #fbfcfd; }
+.memberLabRole span { overflow: hidden; color: #3c4652; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.memberLabRole select { width: 126px; padding: 7px 8px; border: 1px solid #dfe2e8; border-radius: 6px; background: #fff; color: #3c4652; font-size: 12px; }
+@media (max-width: 600px) { .membershipPanel { padding: 18px; } .membershipRow { align-items: flex-start; flex-direction: column; } .membershipRow select { width: 100%; } .membershipTableHead { display: none; } .membershipUserRow { grid-template-columns: 1fr; } .memberLabGrid { grid-template-columns: 1fr; } .memberLabRole { grid-template-columns: 1fr; } .memberLabRole select { width: 100%; } }
 .adminPageHeader { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; width: 100%; margin-bottom: 18px; }
 .adminPageHeader h1 { margin: 8px 0 7px; color: #252a33; font-size: clamp(30px, 4vw, 42px); letter-spacing: -.02em; }
 .adminPageHeader p { margin: 0; }
@@ -323,7 +337,7 @@ main.shell > .labChangeList { width: 100%; max-width: none; margin-left: 0; marg
 .adminKpis > div { display: flex; align-items: end; justify-content: space-between; min-height: 76px; padding: 15px 17px; border: 1px solid #dfe2e8; border-radius: 10px; background: #fff; }
 .adminKpis span { color: #7b8490; font-size: 12px; }
 .adminKpis strong { color: #9e2038; font-size: 24px; line-height: 1; }
-.adminTwoCol { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+.adminTwoCol { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 18px; align-items: start; }
 .adminTwoCol .membershipPanel, .adminTwoCol .invitePanel { margin: 0 0 18px; }
 .invitePanel { width: 100%; padding: 22px 24px; background: #fff; border: 1px solid #dfe2e8; border-radius: 12px; }
 .invitePanel .sectionHeading { width: 100%; margin: 0 0 16px; }
@@ -622,4 +636,10 @@ body[data-theme="dark"] .sourceAdminPanel, body[data-theme="dark"] .sourceAdminR
 body[data-theme="dark"] .sourceAdminList { background: #26384a; border-color: #26384a; }
 body[data-theme="dark"] .sourceAdminMain strong { color: #e7edf5; }
 body[data-theme="dark"] .sourceAdminMain small, body[data-theme="dark"] .sourceAdminDates span, body[data-theme="dark"] .sourceAdminMetric small { color: #a9b8c8; }
+body[data-theme="dark"] .membershipTable, body[data-theme="dark"] .membershipUserRow, body[data-theme="dark"] .membershipUserRow + .membershipUserRow { background: #26384a; border-color: #26384a; }
+body[data-theme="dark"] .membershipTableHead { background: #1a2a3a; color: #a9b8c8; }
+body[data-theme="dark"] .memberIdentity, body[data-theme="dark"] .memberLabGrid { background: #111a25; }
+body[data-theme="dark"] .memberIdentity strong, body[data-theme="dark"] .memberLabRole span { color: #e7edf5; }
+body[data-theme="dark"] .memberIdentity small { color: #a9b8c8; }
+body[data-theme="dark"] .memberLabRole { background: #162232; border-color: #26384a; }
 @media (max-width: 800px) { .sourceAdminRow { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px; } .sourceAdminMetric { grid-column: 2; grid-row: 1 / span 2; } .sourceAdminDates { grid-column: 1 / -1; } .sourceState { grid-column: 1 / -1; justify-self: start; } }

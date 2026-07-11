@@ -52,7 +52,7 @@ function publicationLabel(change: ChangeCard) {
 export default function DashboardFeed({ changes, weeklyChanges }: { changes: ChangeCard[]; weeklyChanges: ChangeCard[] }) {
   const [active, setActive] = useState<Category>("company");
   const [authenticated, setAuthenticated] = useState(false);
-  useEffect(() => { fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000"}/api/auth/me`, { credentials: "include" }).then((response) => response.json()).then((value) => setAuthenticated(Boolean(value.authenticated))).catch(() => setAuthenticated(false)); }, []);
+  useEffect(() => { fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ""}/api/auth/me`, { credentials: "include" }).then((response) => response.json()).then((value) => setAuthenticated(Boolean(value.authenticated))).catch(() => setAuthenticated(false)); }, []);
   const counts = useMemo(() => changes.reduce<Record<string, number>>((result, change) => {
     for (const category of categoriesFor(change)) result[category] = (result[category] ?? 0) + 1;
     return result;

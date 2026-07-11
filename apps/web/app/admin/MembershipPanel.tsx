@@ -9,6 +9,15 @@ export default function MembershipPanel({ initialMemberships }: { initialMembers
   const [memberships, setMemberships] = useState(initialMemberships);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
+  const groupedMemberships = memberships.reduce<Array<{ userId: string; email: string; name: string | null; labs: LabMembership[] }>>((groups, membership) => {
+    const existing = groups.find((group) => group.userId === membership.user_id);
+    if (existing) {
+      existing.labs.push(membership);
+      return groups;
+    }
+    groups.push({ userId: membership.user_id, email: membership.email, name: membership.name, labs: [membership] });
+    return groups;
+  }, []).map((group) => ({ ...group, labs: [...group.labs].sort((a, b) => a.lab_name.localeCompare(b.lab_name)) }));
 
   async function changeRole(membership: LabMembership, role: LabMembership["role"]) {
     setSaving(`${membership.user_id}:${membership.lab_id}`);
@@ -23,5 +32,5 @@ export default function MembershipPanel({ initialMemberships }: { initialMembers
     }
   }
 
-  return <section className="membershipPanel"><div className="sectionHeading"><div><span className="sectionLabel">ACCESS</span><h2>Lab 成员权限</h2><p className="muted">用户首次登录后会出现在这里，再为其分配 Lab 角色。</p></div></div>{memberships.length === 0 ? <div className="emptyFeed">还没有 Lab 成员。用户完成 Google 登录后会自动出现。</div> : <div className="membershipList">{memberships.map((membership) => { const key = `${membership.user_id}:${membership.lab_id}`; return <div className="membershipRow" key={key}><div><strong>{membership.name || membership.email}</strong><small>{membership.email} · {membership.lab_name}</small></div><select value={membership.role} disabled={saving === key} onChange={(event) => changeRole(membership, event.target.value as LabMembership["role"])}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>; })}</div>}{error && <p className="radarError">{error}</p>}</section>;
+  return <section className="membershipPanel"><div className="sectionHeading"><div><span className="sectionLabel">ACCESS</span><h2>Lab 成员权限</h2><p className="muted">按用户聚合显示成员，再在每个 Lab 上调整角色，人数增加后更容易扫描。</p></div><span className="updateCount">{groupedMemberships.length} 位成员</span></div>{memberships.length === 0 ? <div className="emptyFeed">还没有 Lab 成员。用户完成 Google 登录后会自动出现。</div> : <div className="membershipTable"><div className="membershipTableHead"><span>成员</span><span>Lab 权限</span></div>{groupedMemberships.map((group) => <article className="membershipUserRow" key={group.userId}><div className="memberIdentity"><strong>{group.name || group.email}</strong><small>{group.email}</small></div><div className="memberLabGrid">{group.labs.map((membership) => { const key = `${membership.user_id}:${membership.lab_id}`; return <label className="memberLabRole" key={key}><span>{membership.lab_name}</span><select value={membership.role} disabled={saving === key} onChange={(event) => changeRole(membership, event.target.value as LabMembership["role"])}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>; })}</div></article>)}</div>}{error && <p className="radarError">{error}</p>}</section>;
 }
