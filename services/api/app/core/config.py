@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://radar:radar_dev_password@postgres:5432/research_radar"
     redis_url: str = "redis://redis:6379/0"
     minio_endpoint: str = "minio:9000"
+    minio_secure: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

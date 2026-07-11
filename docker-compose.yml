@@ -47,6 +47,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD:-radar_dev_password}@postgres:5432/${POSTGRES_DB:-research_radar}
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: ${MINIO_SECURE:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,10 +57,16 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   web:
     build: ./apps/web
     environment:
+      API_INTERNAL_BASE_URL: http://api:8000
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
     depends_on:
       - api
