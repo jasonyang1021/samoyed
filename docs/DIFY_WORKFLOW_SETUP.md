@@ -39,9 +39,13 @@ The API expects these output fields:
   "change_summary": "",
   "importance": "A",
   "lab_why_relevant": "",
-  "lab_impact": ""
+  "lab_impact": "",
+  "confidence": 0.0,
+  "evidence_citations": []
 }
 ```
+
+The last two fields are backward-compatible additions. `confidence` must be between 0 and 1. `evidence_citations` should contain short quotes or precise locations from the supplied source; an empty list is allowed when the workflow has not yet been upgraded.
 
 ## 2. Search Workflow
 
