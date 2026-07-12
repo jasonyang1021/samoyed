@@ -297,7 +297,9 @@ AI 分析是外部网络调用。Provider 响应慢或不可用时，系统会�
 - Intel Newsroom、Samsung Electro-Mechanics、IMAPS、Nippon Electric Glass
 - Micron、TSMC、NVIDIA 等企业的公开信息
 
-来源配置位于 services/api/app/db/seed.py。不同来源的 API 限制、使用条款和可保存内容可能不同，部署前应逐一核对。
+项目自带默认来源目录，配置位于 services/api/app/db/seed.py。首次执行 seed 时会创建公开的论文、新闻、企业、会议和专利来源；系统管理员可以在后台启用、停用、测试或删除这些来源，也可以在这里直接修改默认来源定义并提交新的版本。
+
+默认来源目录包括 arXiv、Crossref、OpenAlex、Semantic Scholar、Europe PMC、Google News、Intel Newsroom、Samsung Electro-Mechanics、Nippon Electric Glass、IMAPS、Google Patents 和 PatentsView，并覆盖 Glass Core、CPO、HBM、PCB、MLCC 等方向。不同来源的 API 限制、使用条款和可保存内容可能不同，部署前应逐一核对。
 
 时间规则如下：
 

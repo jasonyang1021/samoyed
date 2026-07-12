@@ -1,9 +1,11 @@
+from datetime import timedelta
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.database import Base
-from app.db.models import Change, Document, Source, WatchItem
+from app.db.models import Change, Document, Source, WatchItem, utc_now
 from app.services.analyzer import analyze_pending_documents
 from app.services.ingestion import ingest_source, parse_payload
 
@@ -100,7 +102,7 @@ def test_rule_analysis_generates_relevant_change(monkeypatch) -> None:
         item = WatchItem(id="topic-glass-core", kind="topic", name="Glass Core", is_following=True)
         db.add_all([source, item])
         db.flush()
-        db.add(Document(id="doc-test-analysis", source_id=source.id, canonical_url="https://example.test/doc", title="Glass Core TGV reliability", content_text="New Glass Core TGV reliability results show a stronger engineering signal.", content_fingerprint="fingerprint-test-analysis", raw_metadata={}))
+        db.add(Document(id="doc-test-analysis", source_id=source.id, canonical_url="https://example.test/doc", title="Glass Core TGV reliability", content_text="New Glass Core TGV reliability results show a stronger engineering signal.", content_fingerprint="fingerprint-test-analysis", published_at=utc_now() - timedelta(days=1), raw_metadata={}))
         db.commit()
 
         analyses, generated = analyze_pending_documents(db)

@@ -67,7 +67,18 @@ export default function SnowyAssistant({ labId, labName }: { labId: string; labN
   const copy = snowyCopy[language === "en" ? "en" : language === "ja" ? "ja" : "zh"];
 
   useEffect(() => {
-    setLanguage(window.localStorage.getItem("radar-language") || "zh-CN");
+    const readLanguage = () => window.localStorage.getItem("radar-language") || document.documentElement.lang || "zh-CN";
+    const updateLanguage = (event?: Event) => {
+      const detail = (event as CustomEvent<{ language?: string }> | undefined)?.detail;
+      setLanguage(detail?.language || readLanguage());
+    };
+    updateLanguage();
+    window.addEventListener("radar-language-changed", updateLanguage);
+    window.addEventListener("storage", updateLanguage);
+    return () => {
+      window.removeEventListener("radar-language-changed", updateLanguage);
+      window.removeEventListener("storage", updateLanguage);
+    };
   }, []);
 
   useEffect(() => {

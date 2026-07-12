@@ -21,9 +21,17 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_max_tool_turns: int = 6
     ai_request_timeout_seconds: int = 45
+    # Dify workflows may include web search and several model steps. Keep this
+    # separate from the short timeout used by ordinary AI API requests.
+    dify_request_timeout_seconds: int = 600
     ai_max_retries: int = 2
     ai_max_input_chars: int = 12000
     ai_max_output_tokens: int = 1200
+    source_request_timeout_seconds: int = 10
+    source_article_enrich_timeout_seconds: int = 3
+    source_article_enrich_limit: int = 5
+    source_lookback_days: int = 30
+    radar_max_documents_per_run: int = 100
     dify_base_url: str = "https://api.dify.ai/v1"
     dify_api_key: Optional[str] = None
     dify_search_api_key: Optional[str] = None

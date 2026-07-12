@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import timezone
+from datetime import timedelta
+from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models import Analysis, Change, Document, Lab, LabChangeInterpretation, LabWatchItem, WatchItem, utc_now
+from app.db.models import Analysis, Change, Document, Lab, LabChangeInterpretation, LabSource, LabWatchItem, WatchItem, utc_now
 from app.services.ai_gateway import AIUnavailableError, active_provider, call_ai_json
 
 
@@ -76,7 +77,7 @@ AI_ANALYSIS_SCHEMA = {
 }
 
 
-def _ai_analyze(document: Document, watched_names: list[str], profiles: list[dict]) -> dict[str, object] | None:
+def _ai_analyze(document: Document, watched_names: list[str], profiles: list[dict], progress_callback: Callable[[str, int], None] | None = None) -> dict[str, object] | None:
     if active_provider() == "rule_based":
         return None
     prompt = f"""You are the senior analyst for AI Research Radar.
@@ -92,12 +93,18 @@ Content:
 
 Decide whether it is materially relevant to any configured Lab. Return concise Chinese text for the summary and all judgment fields. Keep extracted_facts and evidence_citations to at most three items. Each evidence_citations item must be a short verbatim quote or a precise location in the supplied source. Confidence and relevance_score must be between 0 and 1."""
     try:
+        if progress_callback:
+            progress_callback("dify_started", 0)
         result = call_ai_json(prompt, "research_radar_analysis", AI_ANALYSIS_SCHEMA)
+        if progress_callback:
+            progress_callback("dify_succeeded", 0)
         result["relevance_score"] = max(0.0, min(0.99, float(result["relevance_score"])))
         result["confidence"] = max(0.0, min(0.99, float(result.get("confidence", result["relevance_score"]))))
         result["evidence_citations"] = [str(item) for item in result.get("evidence_citations", [])][:3]
         return result
     except (AIUnavailableError, KeyError, TypeError, ValueError):
+        if progress_callback:
+            progress_callback("dify_failed", 0)
         return None
 
 
@@ -125,6 +132,9 @@ def _ensure_lab_interpretations(db: Session, change: Change, document: Document,
     haystack = f"{document.title}\n{document.content_text}".casefold()
     linked_names = set(matched_entities)
     for lab in db.scalars(select(Lab).order_by(Lab.name.asc())).all():
+        selected_sources = {link.source_id for link in db.query(LabSource).filter(LabSource.lab_id == lab.id, LabSource.enabled.is_(True)).all()}
+        if selected_sources and document.source_id not in selected_sources:
+            continue
         lab_items = {link.watch_item.name for link in db.query(LabWatchItem).filter(LabWatchItem.lab_id == lab.id).all()}
         profile = lab.profile
         configured_rules = profile.signal_rules if profile and isinstance(profile.signal_rules, dict) else {}
@@ -153,7 +163,7 @@ def _ensure_lab_interpretations(db: Session, change: Change, document: Document,
             interpretation.generation_method = "ai"
 
 
-def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change | None]:
+def _analyze_document(db: Session, document: Document, progress_callback: Callable[[str, int], None] | None = None) -> tuple[Analysis, Change | None]:
     existing = db.scalar(select(Analysis).where(Analysis.document_id == document.id))
     if existing:
         generated_id = (existing.raw_result or {}).get("generated_change_id")
@@ -172,7 +182,7 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
     category = _category(document.source.source_type, matched_entities, document.title)
     # Only send plausible radar candidates to the model. Broad scholarly feeds
     # often contain acronym collisions that should be rejected cheaply first.
-    ai_result = _ai_analyze(document, followed_names, profiles) if (is_relevant or matched_keywords) else None
+    ai_result = _ai_analyze(document, followed_names, profiles, progress_callback) if (is_relevant or matched_keywords) else None
     if ai_result:
         matched_entities = [str(item) for item in ai_result["matched_entities"]]
         score = float(ai_result["relevance_score"])
@@ -230,19 +240,24 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
     return analysis, change
 
 
-def analyze_pending_documents(db: Session, document_id: str | None = None) -> tuple[list[Analysis], int]:
+def analyze_pending_documents(db: Session, document_id: str | None = None, progress_callback: Callable[[str, int], None] | None = None) -> tuple[list[Analysis], int]:
     query = select(Document).order_by(Document.fetched_at.asc())
     if document_id:
         query = query.where(Document.id == document_id)
     else:
-        query = query.where(~Document.id.in_(select(Analysis.document_id)))
+        cutoff = utc_now() - timedelta(days=settings.source_lookback_days)
+        query = query.where(~Document.id.in_(select(Analysis.document_id)), Document.published_at.is_not(None), Document.published_at >= cutoff).limit(settings.radar_max_documents_per_run)
     documents = db.scalars(query).all()
+    if progress_callback:
+        progress_callback("analysis_started", len(documents))
     analyses = []
     generated_changes = 0
-    for document in documents:
-        analysis, change = _analyze_document(db, document)
+    for index, document in enumerate(documents, start=1):
+        analysis, change = _analyze_document(db, document, progress_callback)
         analyses.append(analysis)
         if change:
             generated_changes += 1
+        if progress_callback:
+            progress_callback("document_completed", index)
     db.commit()
     return analyses, generated_changes

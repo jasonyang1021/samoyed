@@ -7,6 +7,7 @@ import {
   getLabs,
 } from "../lib/serverApi";
 import LabManagementPanel from "./LabManagementPanel";
+import AdminLatestRunStatus from "./AdminLatestRunStatus";
 import RadarRunPanel from "./RadarRunPanel";
 import ScheduleSettingsPanel from "./ScheduleSettingsPanel";
 import SourcePanel from "./SourcePanel";
@@ -35,8 +36,6 @@ export default async function Admin() {
     getAdminSources(),
   ]);
 
-  const latestRunStatus = runs.length ? (runs[0].status === "completed" ? "Normal" : "Processing") : "Not run";
-
   return (
     <>
       <div className="adminPageHeader">
@@ -52,7 +51,7 @@ export default async function Admin() {
       <div className="adminKpis">
         <div><span>Research Labs</span><strong>{labs.length}</strong></div>
         <div><span>Sources</span><strong>{sources.length}</strong></div>
-        <div><span>Latest Run</span><strong>{latestRunStatus}</strong></div>
+        <div><span>Latest Run</span><AdminLatestRunStatus initialRun={runs[0]} /></div>
       </div>
       <LabManagementPanel initialLabs={labs} />
       <ScheduleSettingsPanel initialSettings={scheduleSettings} />

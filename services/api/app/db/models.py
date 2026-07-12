@@ -26,6 +26,7 @@ class Lab(Base):
     memberships: Mapped[list["LabMembership"]] = relationship(back_populates="lab")
     invitations: Mapped[list["LabInvitation"]] = relationship(back_populates="lab")
     watch_items: Mapped[list["LabWatchItem"]] = relationship(back_populates="lab", cascade="all, delete-orphan")
+    source_links: Mapped[list["LabSource"]] = relationship(back_populates="lab", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -124,6 +125,19 @@ class Source(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="source")
+    lab_links: Mapped[list["LabSource"]] = relationship(back_populates="source", cascade="all, delete-orphan")
+
+
+class LabSource(Base):
+    __tablename__ = "lab_sources"
+
+    lab_id: Mapped[str] = mapped_column(String(64), ForeignKey("labs.id", ondelete="CASCADE"), primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(64), ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    lab: Mapped[Lab] = relationship(back_populates="source_links")
+    source: Mapped[Source] = relationship(back_populates="lab_links")
 
 
 class Document(Base):
@@ -180,6 +194,14 @@ class RadarRun(Base):
     analyzed: Mapped[int] = mapped_column(default=0, nullable=False)
     relevant: Mapped[int] = mapped_column(default=0, nullable=False)
     generated_changes: Mapped[int] = mapped_column(default=0, nullable=False)
+    analysis_total: Mapped[int] = mapped_column(default=0, nullable=False)
+    dify_requests_total: Mapped[int] = mapped_column(default=0, nullable=False)
+    dify_requests_succeeded: Mapped[int] = mapped_column(default=0, nullable=False)
+    dify_requests_failed: Mapped[int] = mapped_column(default=0, nullable=False)
+    processed_sources: Mapped[int] = mapped_column(default=0, nullable=False)
+    total_sources: Mapped[int] = mapped_column(default=0, nullable=False)
+    current_source: Mapped[Optional[str]] = mapped_column(Text)
+    phase: Mapped[str] = mapped_column(String(32), default="starting", nullable=False)
     errors: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
 

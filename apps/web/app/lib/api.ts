@@ -37,6 +37,37 @@ export type SourceRecord = {
   last_checked_at: string | null;
 };
 
+export type LabSourceRecord = {
+  lab_id: string;
+  source_id: string;
+  source_type: string;
+  title: string;
+  url: string | null;
+  format: string | null;
+  document_count: number;
+  status: string;
+  source_enabled: boolean;
+  enabled: boolean;
+  recommended: boolean;
+  recommendation_reason: string;
+  last_error: string | null;
+};
+
+export type SourceRecommendation = {
+  lab_id: string;
+  lab_name: string;
+  source_id: string;
+  title: string;
+  source_type: string;
+  url: string | null;
+  format: string | null;
+  score: number;
+  reason: string;
+  enabled: boolean;
+  source_enabled: boolean;
+  requires_api_key: boolean;
+};
+
 export type LabAuditLog = {
   id: string;
   lab_id: string;
@@ -59,6 +90,14 @@ export type RadarRun = {
   analyzed: number;
   relevant: number;
   generated_changes: number;
+  analysis_total: number;
+  dify_requests_total: number;
+  dify_requests_succeeded: number;
+  dify_requests_failed: number;
+  processed_sources: number;
+  total_sources: number;
+  current_source: string | null;
+  phase: "starting" | "ingestion" | "ai_search" | "analysis" | "completed" | "failed";
   errors: string[];
 };
 
@@ -134,6 +173,21 @@ export type WatchItem = {
   created_at: string;
 };
 
+export type WatchArticle = {
+  id: string;
+  title: string;
+  summary: string;
+  url: string;
+  image_url: string | null;
+  published_at: string | null;
+  source_title: string;
+  source_type: string;
+};
+
+export function getLabWatchArticles(labId: string, watchItemId: string) {
+  return fetchJson<WatchArticle[]>(`/api/labs/${labPathSegment(labId)}/watch-items/${encodeURIComponent(watchItemId)}/articles`);
+}
+
 export type LabChangeCard = ChangeCard & {
   why_relevant: string;
   impact: string;
@@ -156,7 +210,7 @@ function labPathSegment(labId: string) {
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store" });
+  const response = await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store", credentials: "include" });
 
   if (!response.ok) {
     throw new Error(`API request failed: ${path}`);
@@ -169,7 +223,14 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${apiBaseUrl()}${path}`, { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined, credentials: "include", cache: "no-store" });
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${path}`);
+    let detail = "";
+    try {
+      const payload = await response.json() as { detail?: string };
+      detail = typeof payload.detail === "string" ? payload.detail : "";
+    } catch {
+      // Keep the generic message when the server did not return JSON.
+    }
+    throw new Error(detail || `API request failed: ${path}`);
   }
 
   return response.json() as Promise<T>;
@@ -187,6 +248,10 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
 
 export function getTodayChanges() {
   return fetchJson<ChangeCard[]>("/api/changes/today");
+}
+
+export function getWeeklyChanges() {
+  return fetchJson<ChangeCard[]>("/api/changes/week");
 }
 
 export function getMonthlyChanges() {
@@ -226,6 +291,18 @@ export async function addLabWatchItem(labId: string, payload: Pick<WatchItem, "k
 export async function removeLabWatchItem(labId: string, watchItemId: string) {
   const response = await fetch(`${apiBaseUrl()}/api/labs/${labPathSegment(labId)}/watch-items/${encodeURIComponent(watchItemId)}`, { method: "DELETE", credentials: "include" });
   if (!response.ok) throw new Error("API request failed");
+}
+
+export function updateLabSource(labId: string, sourceId: string, enabled: boolean) {
+  return putJson<LabSourceRecord>(`/api/labs/${labPathSegment(labId)}/sources/${encodeURIComponent(sourceId)}`, { enabled });
+}
+
+export function addLabSources(labId: string, sourceIds: string[]) {
+  return postJson<LabSourceRecord[]>(`/api/labs/${labPathSegment(labId)}/sources/batch`, { source_ids: sourceIds });
+}
+
+export function getAdminSourceRecommendations() {
+  return fetchJson<SourceRecommendation[]>("/api/admin/source-recommendations");
 }
 
 export function getChange(changeId: string) {

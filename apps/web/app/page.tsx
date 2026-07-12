@@ -1,11 +1,11 @@
-import { getTodayChanges, getMonthlyChanges } from "./lib/api";
+import { getMonthlyChanges, getWeeklyChanges } from "./lib/api";
 import DashboardFeed from "./DashboardFeed";
 
 export const dynamic = "force-dynamic";
 const importanceStars: Record<string, string> = { S: "★★★★★", A: "★★★★☆", B: "★★★☆☆", C: "★★☆☆☆" };
 
 export default async function Home() {
-  const [changes, monthlyChanges] = await Promise.all([getTodayChanges(), getMonthlyChanges()]);
+  const [changes, monthlyChanges] = await Promise.all([getWeeklyChanges(), getMonthlyChanges()]);
   return <>
     <DashboardFeed changes={changes} weeklyChanges={monthlyChanges} />
   </>;

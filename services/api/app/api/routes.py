@@ -1,26 +1,28 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 from urllib.error import URLError
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 import redis
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import case, create_engine, select, text
+from sqlalchemy import case, create_engine, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
-from app.db.database import get_db
-from app.db.models import Analysis, Change, Document, Lab, LabAuditLog, LabChangeInterpretation, LabInvitation, LabMembership, LabProfile, LabWatchItem, RadarRun, RadarSettings, Source, User, WatchItem, utc_now
+from app.db.database import SessionLocal, get_db
+from app.db.models import Analysis, Change, Document, Lab, LabAuditLog, LabChangeInterpretation, LabInvitation, LabMembership, LabProfile, LabSource, LabWatchItem, RadarRun, RadarSettings, Source, User, WatchItem, utc_now
 from app.schemas.analysis import AnalysisRead, AnalysisRunResult
-from app.schemas.document import DocumentRead, IngestResult, SourceRead
+from app.schemas.document import DocumentRead, IngestResult, LabSourceBatchUpdate, LabSourceRead, LabSourceUpdate, SourceRead, SourceRecommendationRead, WatchArticleRead
 from app.schemas.change import ChangeCard, ChangeDetail, LabChangeCard
 from app.schemas.lab import LabCreate, LabRead, LabUpdate, LabProfileRead, LabProfileUpdate, LabWatchItemCreate, LabWatchItemRead
 from app.schemas.radar import RadarRunRead
@@ -33,6 +35,7 @@ from app.services.analyzer import analyze_pending_documents
 from app.services.radar import run_radar
 from app.services.ai_gateway import AIUnavailableError, active_model, active_provider, call_ai_json, call_chat_agent, check_dify_connection, parse_json_object, salvage_json_object
 from app.services.web_search import search_public_web
+from app.services.watch_search import search_watch_item
 from app.services.auth import create_session, exchange_google_code, google_authorization_url, google_enabled, google_state, read_session, session_profile, sync_user
 
 router = APIRouter()
@@ -334,8 +337,121 @@ def lab_audit_logs(lab_id: str, request: Request, db: Session = Depends(get_db))
     return [LabAuditLogRead(id=item.id, lab_id=item.lab_id, actor_name=item.actor.name if item.actor else None, actor_email=item.actor.email if item.actor else None, action=item.action, target=item.target, details=item.details, created_at=item.created_at) for item in entries]
 
 
+def _lab_source_recommendation(lab: Lab, source: Source, watch_names: list[str]) -> tuple[bool, str]:
+    profile = lab.profile
+    profile_text = json.dumps({
+        "description": lab.description,
+        "research_scope": profile.research_scope if profile else {},
+        "watchlist": profile.watchlist if profile else {},
+        "signal_rules": profile.signal_rules if profile else {},
+    }, ensure_ascii=False).casefold()
+    source_tags = " ".join(str(tag) for tag in (source.raw_metadata or {}).get("recommendation_tags", []))
+    source_text = f"{source.title} {source.source_type} {source.url or ''} {source_tags}".casefold()
+    matched = [name for name in watch_names if len(name.strip()) >= 2 and name.casefold() in source_text]
+    if matched:
+        return True, f"匹配当前 Lab 的关注对象：{'、'.join(matched[:3])}。"
+    if profile and source.source_type in {"paper_feed", "paper_api", "conference_article"}:
+        return True, "适合补充当前 Lab 的公开论文、会议和研究资料。"
+    if profile_text and source.source_type in {"news_feed", "company_news", "company_product"}:
+        return True, "可补充企业和技术新闻，建议结合 Lab 关注对象启用。"
+    return False, "系统来源目录中的可选来源，可按研究需要启用。"
+
+
+def _lab_source_read(lab: Lab, source: Source, link: LabSource | None, watch_names: list[str]) -> LabSourceRead:
+    docs = list(source.documents)
+    source_format = (source.raw_metadata or {}).get("format")
+    recommended, reason = _lab_source_recommendation(lab, source, watch_names)
+    status_label = "已停用" if not source.enabled else ("异常" if source.last_error else ("有数据" if docs else ("需 API Key" if source_format == "patentsview" and not settings.patentsview_api_key else ("可抓取" if source.url and source_format else "未配置"))))
+    return LabSourceRead(
+        lab_id=lab.id,
+        source_id=source.id,
+        source_type=source.source_type,
+        title=source.title,
+        url=source.url,
+        format=source_format,
+        document_count=len(docs),
+        status=status_label,
+        source_enabled=source.enabled,
+        enabled=bool(link and link.enabled),
+        recommended=recommended,
+        recommendation_reason=reason,
+        last_error=source.last_error,
+    )
+
+
+@router.get("/api/labs/{lab_id}/sources", response_model=list[LabSourceRead])
+def lab_sources(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabSourceRead]:
+    require_lab_admin(request, lab_id, db)
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    links = {link.source_id: link for link in db.query(LabSource).filter(LabSource.lab_id == lab_id).all()}
+    watch_names = [item.watch_item.name for item in db.query(LabWatchItem).join(LabWatchItem.watch_item).filter(LabWatchItem.lab_id == lab_id).all()]
+    sources = [source for source in db.scalars(select(Source).options(selectinload(Source.documents)).order_by(Source.title.asc())).all() if source.enabled]
+    return [_lab_source_read(lab, source, links.get(source.id), watch_names) for source in sources]
+
+
+@router.put("/api/labs/{lab_id}/sources/{source_id}", response_model=LabSourceRead)
+def update_lab_source(lab_id: str, source_id: str, payload: LabSourceUpdate, request: Request, db: Session = Depends(get_db)) -> LabSourceRead:
+    actor = require_lab_admin(request, lab_id, db)
+    lab = db.get(Lab, lab_id)
+    source = db.get(Source, source_id)
+    if lab is None or source is None:
+        raise HTTPException(status_code=404, detail="Lab or source not found")
+    if payload.enabled and not source.enabled:
+        if actor.get("role") != "system_admin":
+            raise HTTPException(status_code=409, detail="Source requires system administrator approval")
+        source.enabled = True
+    link = db.get(LabSource, {"lab_id": lab_id, "source_id": source_id})
+    if link is None:
+        link = LabSource(lab_id=lab_id, source_id=source_id, enabled=payload.enabled)
+        db.add(link)
+    else:
+        link.enabled = payload.enabled
+    db.commit()
+    db.refresh(link)
+    watch_names = [item.watch_item.name for item in db.query(LabWatchItem).join(LabWatchItem.watch_item).filter(LabWatchItem.lab_id == lab_id).all()]
+    source.documents = list(db.scalars(select(Document).where(Document.source_id == source_id)).all())
+    return _lab_source_read(lab, source, link, watch_names)
+
+
+@router.post("/api/labs/{lab_id}/sources/batch", response_model=list[LabSourceRead])
+def add_lab_sources_batch(lab_id: str, payload: LabSourceBatchUpdate, request: Request, db: Session = Depends(get_db)) -> list[LabSourceRead]:
+    actor = require_lab_admin(request, lab_id, db)
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    source_ids = list(dict.fromkeys(payload.source_ids))
+    sources = db.query(Source).filter(Source.id.in_(source_ids)).all() if source_ids else []
+    if len(sources) != len(source_ids):
+        raise HTTPException(status_code=404, detail="One or more sources not found")
+    for source in sources:
+        if not source.enabled:
+            if actor.get("role") != "system_admin":
+                raise HTTPException(status_code=409, detail="Source requires system administrator approval")
+            source.enabled = True
+        link = db.get(LabSource, {"lab_id": lab_id, "source_id": source.id})
+        if link is None:
+            db.add(LabSource(lab_id=lab_id, source_id=source.id, enabled=True))
+        else:
+            link.enabled = True
+    db.commit()
+    watch_names = [item.watch_item.name for item in db.query(LabWatchItem).join(LabWatchItem.watch_item).filter(LabWatchItem.lab_id == lab_id).all()]
+    result = []
+    for source in sources:
+        source.documents = list(db.scalars(select(Document).where(Document.source_id == source.id)).all())
+        result.append(_lab_source_read(lab, source, db.get(LabSource, {"lab_id": lab_id, "source_id": source.id}), watch_names))
+    return result
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@router.get("/api/health")
+def api_health() -> dict[str, str]:
+    """Stable liveness endpoint for reverse proxies and deployment monitors."""
     return {"status": "ok"}
 
 
@@ -494,7 +610,7 @@ def today_changes(db: Session = Depends(get_db)) -> list[ChangeCard]:
 def week_changes(db: Session = Depends(get_db)) -> list[ChangeCard]:
     today = _today_start()
     week_start = today - timedelta(days=today.weekday())
-    changes = _changes_by_published_window(db, week_start, today)
+    changes = _changes_by_published_window(db, week_start, today + timedelta(days=1))
     watch_item_names = {item.id: item.name for item in db.scalars(select(WatchItem)).all()}
     return [_to_change_card(change, watch_item_names, _change_published_at(db, change)) for change in changes]
 
@@ -647,8 +763,14 @@ def lab_assistant(lab_id: str, payload: AssistantAsk, request: Request, db: Sess
         user_request = "The user just opened the assistant. Learn the Lab profile and today's changes, then briefly explain what you learned and what they can ask next." if not question else question
     if article_context:
         user_request += f"\n\nArticle context for this request:\n{article_context}"
+    language_rule = {
+        "English": "Write every user-facing field in English only. Do not use Chinese or Japanese characters, even when the source material is Chinese.",
+        "Japanese": "Write every user-facing field in Japanese only. Do not use Chinese or English prose, except proper nouns, product names, URLs, and technical acronyms.",
+        "Chinese": "请将所有面向用户的字段统一使用简体中文。除专有名词、产品名、URL 和技术缩写外，不要使用英文或日文句子。",
+    }[response_language]
     system_prompt = f"""You are Snowy, a warm but rigorous research assistant for {lab.name}.
 Use the provided research tools before answering. When conversation history is present, continue that conversation instead of restarting with a generic Lab overview. Resolve references to earlier messages and articles using the history and tools. You may search the public web when the Lab sources do not cover the question or when the user asks for current external information. Do not invent facts or claim to have read anything that a tool did not return. Treat source facts and your inference separately. Every conclusion must cite one or more source_index values from tool results. If there are no today's changes, say so clearly.
+Language requirement: {language_rule}
 
 Return ONLY valid JSON with this shape:
 {json.dumps(ASSISTANT_SCHEMA, ensure_ascii=False)}
@@ -678,13 +800,36 @@ The answer and all user-facing fields must be concise {response_language}. studi
         logger.warning("Snowy assistant fell back to local rules for lab %s: %s", lab_id, error)
         today_context = execute_tool("get_today_changes", {})
         titles = [item["title"] for item in today_context["changes"]]
+        fallback_copy = {
+            "English": {
+                "answer": f"DeepSeek did not return a result. I reviewed the local research data for {lab.name}, which currently contains {len(titles)} relevant signals.",
+                "summary": f"Read the Lab profile, {len(titles)} current changes, and {len(watch_items)} followed items.",
+                "uncertainty": "This is based only on collected public materials and needs further independent validation.",
+                "suggestions": ["What is the most important change this week?", "Which conclusions need more evidence?", "What should we track next?"],
+                "empty": "There are no new Lab-related changes today.",
+            },
+            "Japanese": {
+                "answer": f"DeepSeekから結果が返りませんでした。{lab.name}の収集済み研究データを確認しました。現在、関連シグナルは{len(titles)}件です。",
+                "summary": f"Labプロフィール、現在の変化{len(titles)}件、フォロー項目{len(watch_items)}件を確認しました。",
+                "uncertainty": "収集済みの公開資料のみに基づくため、追加の独立検証が必要です。",
+                "suggestions": ["今週最も重要な変化は何ですか？", "どの結論に追加の証拠が必要ですか？", "次に何を追跡すべきですか？"],
+                "empty": "本日、新しいLab関連の変化はありません。",
+            },
+            "Chinese": {
+                "answer": f"DeepSeek 暂时没有返回结果。我先用本地已采集数据了解了 {lab.name} 的研究范围和 {len(titles)} 条相关变化。",
+                "summary": f"已读取 Lab Profile、{len(titles)} 条当前变化和 {len(watch_items)} 个关注项。",
+                "uncertainty": "当前仅基于已采集的公开资料，不能替代工程或客户验证。",
+                "suggestions": ["这周最值得关注的变化是什么？", "哪些判断还缺少证据？", "接下来应该继续追踪什么？"],
+                "empty": "今天暂无新的 Lab 相关变化。",
+            },
+        }[response_language]
         result = {
-            "answer": (f"DeepSeek 暂时没有返回结果。我先用本地已采集数据了解了 {lab.name} 的研究范围和 {len(titles)} 条今日变化。" if not question else f"DeepSeek 暂时没有返回结果。以下只是基于本地已采集数据的临时判断：当前 {lab.name} 有 {len(titles)} 条相关信号；这个问题需要结合更多来源继续验证。"),
-            "learning_summary": f"已读取 Lab Profile、{len(titles)} 条今日变化和 {len(watch_items)} 个关注项。",
-            "conclusions": [item["impact"] for item in today_context["changes"][:3]] or ["今天暂无新的 Lab 相关变化。"],
+            "answer": fallback_copy["answer"] if not question else fallback_copy["answer"],
+            "learning_summary": fallback_copy["summary"],
+            "conclusions": [item["impact"] for item in today_context["changes"][:3]] or [fallback_copy["empty"]],
             "studied_articles": titles,
-            "uncertainties": ["当前仅基于已采集的公开资料，不能替代工程或客户验证。"],
-            "suggested_questions": ["今天最值得关注的变化是什么？", "哪些判断还缺少证据？", "接下来应该继续追踪什么？"],
+            "uncertainties": [fallback_copy["uncertainty"]],
+            "suggested_questions": fallback_copy["suggestions"],
             "source_indexes": list(range(1, min(len(sources), 3) + 1)),
             "provider": "rule_based",
             "answer_source": "rule_based_fallback",
@@ -790,6 +935,34 @@ def lab_watch_items(lab_id: str, request: Request, db: Session = Depends(get_db)
     return []
 
 
+@router.get("/api/labs/{lab_id}/watch-items/{watch_item_id}/articles", response_model=list[WatchArticleRead])
+def lab_watch_item_articles(lab_id: str, watch_item_id: str, request: Request, db: Session = Depends(get_db)) -> list[WatchArticleRead]:
+    require_lab_access(request, lab_id, db)
+    link = db.get(LabWatchItem, {"lab_id": lab_id, "watch_item_id": watch_item_id})
+    if link is None:
+        raise HTTPException(status_code=404, detail="关注对象不属于当前 Lab")
+    selected_sources = [row.source_id for row in db.query(LabSource).filter(LabSource.lab_id == lab_id, LabSource.enabled.is_(True)).all()]
+    query = select(Document).options(selectinload(Document.source), selectinload(Document.analysis)).where(
+        or_(Document.title.ilike(f"%{link.watch_item.name}%"), Document.content_text.ilike(f"%{link.watch_item.name}%"))
+    )
+    if selected_sources:
+        query = query.where(Document.source_id.in_(selected_sources))
+    documents = db.scalars(query.order_by(Document.published_at.desc(), Document.fetched_at.desc()).limit(8)).all()
+    if not documents:
+        try:
+            search_watch_item(db, link.lab, link.watch_item)
+        except Exception as error:
+            logger.warning("Watch item web search failed for %s: %s", watch_item_id, error)
+        documents = db.scalars(query.order_by(Document.published_at.desc(), Document.fetched_at.desc()).limit(8)).all()
+    results: list[WatchArticleRead] = []
+    for document in documents:
+        summary = document.analysis.summary if document.analysis and document.analysis.summary else " ".join(document.content_text.split())[:260]
+        host = urlparse(document.canonical_url).netloc
+        image_url = (document.raw_metadata or {}).get("image_url") or (f"https://www.google.com/s2/favicons?domain={host}&sz=128" if host else None)
+        results.append(WatchArticleRead(id=document.id, title=document.title, summary=summary, url=document.canonical_url, image_url=image_url, published_at=document.published_at, source_title=document.source.title, source_type=document.source.source_type))
+    return results
+
+
 @router.post("/api/labs/{lab_id}/watch-items", response_model=LabWatchItemRead, status_code=status.HTTP_201_CREATED)
 def add_lab_watch_item(lab_id: str, payload: LabWatchItemCreate, request: Request, db: Session = Depends(get_db)) -> LabWatchItemRead:
     require_lab_admin(request, lab_id, db)
@@ -853,6 +1026,61 @@ def admin_sources(db: Session = Depends(get_db), _: Optional[dict] = Depends(req
     for source in db.scalars(select(Source).options(selectinload(Source.documents)).order_by(Source.title.asc())).all():
         result.append(_to_source_read(source))
     return result
+
+
+@router.get("/api/admin/source-recommendations", response_model=list[SourceRecommendationRead])
+def admin_source_recommendations(db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> list[SourceRecommendationRead]:
+    labs = db.scalars(select(Lab).options(selectinload(Lab.profile)).order_by(Lab.name.asc())).all()
+    sources = db.scalars(select(Source).order_by(Source.title.asc())).all()
+    recommendations: list[SourceRecommendationRead] = []
+    for lab in labs:
+        watch_names = [item.watch_item.name for item in db.query(LabWatchItem).join(LabWatchItem.watch_item).filter(LabWatchItem.lab_id == lab.id).all()]
+        profile = lab.profile
+        profile_text = json.dumps({
+            "description": lab.description,
+            "research_scope": profile.research_scope if profile else {},
+            "watchlist": profile.watchlist if profile else {},
+            "signal_rules": profile.signal_rules if profile else {},
+        }, ensure_ascii=False).casefold()
+        selected = {link.source_id for link in db.query(LabSource).filter(LabSource.lab_id == lab.id, LabSource.enabled.is_(True)).all()}
+        ranked: list[tuple[float, Source, str]] = []
+        for source in sources:
+            tags = [str(tag) for tag in (source.raw_metadata or {}).get("recommendation_tags", [])]
+            source_text = f"{source.title} {source.source_type} {' '.join(tags)}".casefold()
+            matched_watch = [name for name in watch_names if len(name.strip()) >= 2 and name.casefold() in source_text]
+            matched_profile = [tag for tag in tags if tag.casefold() in profile_text]
+            score = min(0.99, 0.35 + len(matched_watch) * 0.18 + len(matched_profile) * 0.08)
+            if source.source_type in {"paper_feed", "paper_api", "news_feed", "company_news", "company_product", "patent_feed", "patent_api", "conference_article"}:
+                score += 0.06
+            if matched_watch or matched_profile or source.source_type in {"paper_feed", "paper_api", "news_feed", "company_news", "company_product", "patent_feed", "patent_api", "conference_article"}:
+                reason = f"匹配关注对象：{'、'.join(matched_watch[:3])}。" if matched_watch else f"匹配研究方向：{'、'.join(matched_profile[:3]) or '公开研究资料'}。"
+                ranked.append((min(score, 0.99), source, reason))
+        ordered_ranked = sorted(ranked, key=lambda item: (-item[0], item[1].title))
+        diverse: list[tuple[float, Source, str]] = []
+        covered_types: set[str] = set()
+        for item in ordered_ranked:
+            source_type = item[1].source_type
+            if source_type not in covered_types:
+                diverse.append(item)
+                covered_types.add(source_type)
+        diverse.extend(item for item in ordered_ranked if item not in diverse)
+        for score, source, reason in diverse[:30]:
+            source_format = (source.raw_metadata or {}).get("format")
+            recommendations.append(SourceRecommendationRead(
+                lab_id=lab.id,
+                lab_name=lab.name,
+                source_id=source.id,
+                title=source.title,
+                source_type=source.source_type,
+                url=source.url,
+                format=source_format,
+                score=round(score, 2),
+                reason=reason,
+                enabled=source.id in selected,
+                source_enabled=source.enabled,
+                requires_api_key=source_format == "patentsview",
+            ))
+    return recommendations
 
 
 def _to_source_read(source: Source) -> SourceRead:
@@ -960,6 +1188,7 @@ def document_detail(document_id: str, db: Session = Depends(get_db)) -> Document
     return _to_document_read(document)
 
 
+
 @router.post("/api/ingest/run", response_model=list[IngestResult])
 def run_ingestion(source_id: Optional[str] = None, db: Session = Depends(get_db)) -> list[IngestResult]:
     query = select(Source).order_by(Source.title.asc())
@@ -1027,6 +1256,14 @@ def _to_radar_run_read(run: RadarRun) -> RadarRunRead:
         analyzed=run.analyzed,
         relevant=run.relevant,
         generated_changes=run.generated_changes,
+        analysis_total=run.analysis_total or 0,
+        dify_requests_total=run.dify_requests_total or 0,
+        dify_requests_succeeded=run.dify_requests_succeeded or 0,
+        dify_requests_failed=run.dify_requests_failed or 0,
+        processed_sources=run.processed_sources or 0,
+        total_sources=run.total_sources or run.source_count,
+        current_source=run.current_source,
+        phase=run.phase or ("completed" if run.finished_at else "starting"),
         errors=run.errors,
     )
 
@@ -1037,9 +1274,24 @@ def recent_radar_runs(db: Session = Depends(get_db), _: Optional[dict] = Depends
     return [_to_radar_run_read(run) for run in runs]
 
 
+def _run_radar_background(run_id: str) -> None:
+    with SessionLocal() as db:
+        run = db.get(RadarRun, run_id)
+        if run is not None:
+            run_radar(db, run)
+
+
 @router.post("/api/radar/run", response_model=RadarRunRead)
-def radar_run(db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> RadarRunRead:
-    return _to_radar_run_read(run_radar(db))
+def radar_run(background_tasks: BackgroundTasks, db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> RadarRunRead:
+    active_run = db.scalar(select(RadarRun).where(RadarRun.status == "running").order_by(RadarRun.started_at.desc()).limit(1))
+    if active_run is not None:
+        raise HTTPException(status_code=409, detail="雷达正在运行中，请等待当前运行完成。")
+    run = RadarRun(id=f"run-{hashlib.sha256(utc_now().isoformat().encode('utf-8')).hexdigest()[:24]}", started_at=utc_now(), status="running", errors=[], phase="starting")
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    background_tasks.add_task(_run_radar_background, run.id)
+    return _to_radar_run_read(run)
 
 
 def _to_schedule_read(config: RadarSettings) -> ScheduleRead:
@@ -1134,7 +1386,7 @@ def change_detail(change_id: str, db: Session = Depends(get_db)) -> ChangeDetail
 
 
 @router.get("/api/translations/{change_id}")
-def translate_change(change_id: str, locale: str, db: Session = Depends(get_db)) -> dict[str, object]:
+def translate_change(change_id: str, locale: str, lab_id: Optional[str] = None, db: Session = Depends(get_db)) -> dict[str, object]:
     """Translate one article on demand; the stored source remains unchanged."""
     if locale not in {"en", "zh", "ja"}:
         raise HTTPException(status_code=422, detail="locale must be en, zh or ja")
@@ -1145,13 +1397,17 @@ def translate_change(change_id: str, locale: str, db: Session = Depends(get_db))
     document = db.get(Document, evidence.get("document_id")) if isinstance(evidence, dict) else None
     source_text = document.content_text if document else (evidence.get("evidence_text", "") if isinstance(evidence, dict) else "")
     source_title = document.title if document else change.title
+    interpretation = next((item for item in change.interpretations if not lab_id or item.lab_id == lab_id), None)
+    why_relevant = interpretation.why_relevant if interpretation else ""
+    impact = interpretation.impact if interpretation else ""
     labels = {"en": "English", "zh": "Simplified Chinese", "ja": "Japanese"}
-    if locale == "en":
-        return {"locale": locale, "provider": "source", "title": source_title, "content": source_text, "summary": change.change_summary, "facts": change.new_facts}
-    schema = {"type": "object", "properties": {"title": {"type": "string"}, "content": {"type": "string"}, "summary": {"type": "string"}, "facts": {"type": "array", "items": {"type": "string"}}}, "required": ["title", "content", "summary", "facts"], "additionalProperties": False}
-    prompt = f"Translate the following research article into {labels[locale]}. Preserve technical terms and do not add facts. Return the title, the complete supplied content, a concise translated summary, and translated facts.\nTitle: {source_title}\nContent: {source_text[:18000]}\nSummary: {change.change_summary}\nFacts: {change.new_facts}"
+    source_has_cjk = bool(re.search(r"[\u3400-\u9fff]", f"{source_title} {source_text} {change.change_summary} {why_relevant} {impact}"))
+    if locale == "zh" or (locale == "en" and not source_has_cjk):
+        return {"locale": locale, "provider": "source", "title": source_title, "content": source_text, "summary": change.change_summary, "facts": change.new_facts, "why_relevant": why_relevant, "impact": impact}
+    schema = {"type": "object", "properties": {"title": {"type": "string"}, "content": {"type": "string"}, "summary": {"type": "string"}, "facts": {"type": "array", "items": {"type": "string"}}, "why_relevant": {"type": "string"}, "impact": {"type": "string"}}, "required": ["title", "content", "summary", "facts", "why_relevant", "impact"], "additionalProperties": False}
+    prompt = f"Translate the following research article and Lab interpretation into {labels[locale]}. Preserve technical terms and do not add facts. Return the title, the complete supplied content, a concise translated summary, translated facts, and translations of why_relevant and impact.\nTitle: {source_title}\nContent: {source_text[:18000]}\nSummary: {change.change_summary}\nFacts: {change.new_facts}\nWhy relevant: {why_relevant}\nImpact: {impact}"
     try:
         translated = call_ai_json(prompt, f"article_translation_{locale}", schema)
         return {"locale": locale, "provider": active_provider(), **translated}
     except (AIUnavailableError, KeyError, TypeError, ValueError):
-        return {"locale": "en", "provider": "source", "title": source_title, "content": source_text, "summary": change.change_summary, "facts": change.new_facts}
+        return {"locale": "en", "provider": "source", "title": source_title, "content": source_text, "summary": change.change_summary, "facts": change.new_facts, "why_relevant": why_relevant, "impact": impact}

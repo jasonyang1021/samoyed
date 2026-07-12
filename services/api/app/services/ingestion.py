@@ -4,7 +4,7 @@ import hashlib
 import html
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Callable
@@ -134,6 +134,13 @@ def _parse_datetime(value: str | None) -> datetime | None:
             return parsedate_to_datetime(value)
         except (TypeError, ValueError):
             return None
+
+
+def is_recent(published_at: datetime | None) -> bool:
+    if published_at is None:
+        return False
+    normalized = published_at if published_at.tzinfo else published_at.replace(tzinfo=timezone.utc)
+    return normalized >= utc_now() - timedelta(days=settings.source_lookback_days)
 
 
 def _text(element: ElementTree.Element | None) -> str:
@@ -375,7 +382,7 @@ def ingest_source(db: Session, source: Source, fetcher: Fetcher = fetch_url) -> 
             title = str(record["title"])
             content = str(record["content"])
             published_at = record.get("published_at")
-            if not published_at or published_at.year != utc_now().year:
+            if not is_recent(published_at):
                 continue
             fingerprint = hashlib.sha256(f"{title}\n{content}".encode("utf-8")).hexdigest()
             existing = db.scalar(select(Document).where((Document.canonical_url == canonical_url) | (Document.content_fingerprint == fingerprint)))

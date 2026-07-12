@@ -19,7 +19,7 @@ function changeTypeLabel(change: { title: string; watch_items: string[] }) {
   if (/东京大学|MIT|东北大学/.test(items)) return "高校论文";
   if (/专利|patent/i.test(change.title)) return "专利";
   if (/ECTC|IEDM/.test(items)) return "学术顶会";
-  return "其他技术信息";
+  return "其他技术新闻";
 }
 
 function contentLevelLabel(level: DocumentRecord["content_level"] | undefined) {

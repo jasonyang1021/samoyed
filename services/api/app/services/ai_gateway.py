@@ -166,7 +166,10 @@ def _call_dify(prompt: str, schema_name: str, schema: dict[str, Any], *, web_sea
         method="POST",
     )
     try:
-        with _urlopen_retry(request) as response:
+        # A Dify blocking workflow can legitimately take several minutes when
+        # it performs web search and multi-step analysis. Do not use the
+        # ordinary 45-second AI timeout here; let the workflow finish.
+        with _urlopen_retry(request, timeout=settings.dify_request_timeout_seconds) as response:
             return _dify_result(json.loads(response.read().decode("utf-8")))
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="ignore")[:200]

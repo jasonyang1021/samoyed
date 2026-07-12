@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import type { AIStatus, AuthUser, Lab, LabAuditLog, LabChangeCard, LabInvitation, LabMembership, RadarRun, ScheduleSettings, SourceRecord, WatchItem } from "./api";
+import type { AIStatus, AuthUser, Lab, LabAuditLog, LabChangeCard, LabInvitation, LabMembership, LabSourceRecord, RadarRun, ScheduleSettings, SourceRecord, WatchItem } from "./api";
 
 const base = process.env.API_INTERNAL_BASE_URL ?? "http://localhost:8000";
 
@@ -24,6 +24,7 @@ export function getAdminInvitations() { return serverGet<LabInvitation[]>("/api/
 export function getLabs() { return serverGet<Lab[]>("/api/labs"); }
 export function getLab(labId: string) { return serverGet<Lab>(`/api/labs/${labPathSegment(labId)}`); }
 export function getLabWatchItems(labId: string) { return serverGet<WatchItem[]>(`/api/labs/${labPathSegment(labId)}/watch-items`); }
+export function getLabSources(labId: string) { return serverGet<LabSourceRecord[]>(`/api/labs/${labPathSegment(labId)}/sources`); }
 export function getLabTodayChanges(labId: string) { return serverGet<LabChangeCard[]>(`/api/labs/${labPathSegment(labId)}/changes/today`); }
 export function getLabWeekChanges(labId: string) { return serverGet<LabChangeCard[]>(`/api/labs/${labPathSegment(labId)}/changes/week`); }
 export function getLabMonthChanges(labId: string) { return serverGet<LabChangeCard[]>(`/api/labs/${labPathSegment(labId)}/changes/month`); }

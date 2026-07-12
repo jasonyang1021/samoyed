@@ -133,10 +133,12 @@ body { color-scheme: light; background: #f1f2f5; background-image: none; color: 
 @media (max-width: 760px) { .nav { position: relative; width: 100%; min-height: auto; padding: 18px; } .nav .brand { margin-bottom: 18px; } .navSection, .sideNote, .mutedNav { display: none; } .nav .sideLink { display: inline-block; margin-right: 6px; padding: 9px 12px; } .nav .sideLink small { display: none; } .shell { margin-left: 0; padding: 20px 16px 50px; } .radarHero { padding: 30px 25px; border-radius: 18px; } .radarHero h1 { font-size: 35px; } }
 
 /* Dashboard layout: a quiet top navigation and source-based change modules. */
-.nav { position: sticky; inset: auto; width: auto; min-height: 68px; flex-direction: row; align-items: center; padding: 0 34px; background: #fff; border-bottom: 1px solid #e1e4e9; box-shadow: none; }
+.nav { position: sticky; inset: auto; width: auto; min-height: 68px; flex-direction: row; align-items: center; padding: 0 34px; background: #fff; border-bottom: 1px solid #e1e4e9; box-shadow: none; z-index: 50; }
 .nav .brand { margin: 0; color: #252a33; gap: 10px; }
-.nav .brandMark { width: 34px; height: 34px; border-radius: 9px; background: #9e2038; font-size: 12px; }
-.nav .brand strong { color: #252a33; font-size: 16px; }
+.nav .brandMark { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; background: #dceefa; box-shadow: 0 3px 12px rgba(70, 24, 34, .16); }
+.nav .brandCopy { display: grid; gap: 2px; }
+.nav .brand strong { color: #252a33; font-size: 16px; line-height: 1.1; }
+.nav .brand small { color: #7d8793; font-size: 10px; font-weight: 600; letter-spacing: .04em; line-height: 1.1; }
 .topLinks { display: flex; align-items: stretch; gap: 28px; margin-left: auto; }
 .topLinks a { color: #68717d; font-size: 14px; font-weight: 600; padding: 24px 0 21px; border-bottom: 3px solid transparent; }
 .topLinks > a, .myLabMenu > a { display: flex; align-items: center; height: 68px; padding: 0; }
@@ -156,6 +158,7 @@ body { color-scheme: light; background: #f1f2f5; background-image: none; color: 
 .adminDropdown a { display: block; padding: 10px 11px; border-radius: 6px; color: #3c4652 !important; font-size: 12px !important; font-weight: 600; white-space: nowrap; }
 .adminDropdown a:hover { color: #8d1e34 !important; background: #fbf0f2; }
 .adminMenu:hover .adminDropdown, .adminMenu:focus-within .adminDropdown { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.adminMenu.isOpen .adminDropdown { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .accountSummary { display: grid; gap: 3px; padding: 8px 11px 9px; border-bottom: 1px solid #eef0f3; }
 .accountSummary strong { overflow: hidden; color: #3c4652; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .accountSummary small { color: #8b929c; font-size: 10px; }
@@ -172,8 +175,93 @@ body { color-scheme: light; background: #f1f2f5; background-image: none; color: 
 .dashboardHeading { margin-top: 28px; }
 .dashboardTitle { margin: 7px 0 0; color: #252a33; font-size: 30px; }
 .labHero { margin-top: 0; }
+.labSourcesPanel { max-width: 1180px; margin: 28px auto 0; padding: 22px 24px; border: 1px solid #dfe2e8; border-radius: 12px; background: #fff; }
+.labSourcesPanel .settingsFormHeader { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.sourceSelectionCount { color: #8d1e34; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.sourceRecommendationNote { display: grid; gap: 3px; margin: 16px 0 12px; padding: 12px 14px; border-left: 3px solid #9e2038; border-radius: 0 8px 8px 0; background: #fbf0f2; color: #6f3a44; font-size: 12px; }
+.sourceRecommendationNote strong { color: #8d1e34; }
+.labSourceList { display: grid; gap: 8px; margin-top: 18px; }
+.labSourceRow { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 15px; border: 1px solid #e2e5ea; border-radius: 9px; background: #fbfcfd; }
+.labSourceRow.selected { border-color: #bd8791; background: #fffafb; }
+.labSourceInfo { min-width: 0; }
+.labSourceTitle { display: flex; align-items: center; gap: 8px; }
+.labSourceTitle strong { color: #303944; font-size: 13px; }
+.labSourceInfo small { display: block; margin-top: 4px; color: #8a929d; font-size: 11px; }
+.labSourceInfo p { margin: 6px 0 0; color: #68717d; font-size: 12px; }
+.sourceRecommended { padding: 3px 6px; border-radius: 999px; background: #f8e8ec; color: #8d1e34; font-size: 10px; font-weight: 700; }
+.sourceUseButton { flex: 0 0 auto; min-width: 88px; padding: 8px 11px; border: 1px solid #c9cfd7; border-radius: 7px; background: #fff; color: #596572; font: inherit; font-size: 11px; cursor: pointer; }
+.sourceUseButton:hover { border-color: #9e2038; color: #8d1e34; }
+.sourceUseButton.active { border-color: #9e2038; background: #9e2038; color: #fff; }
+.sourceUseButton:disabled { cursor: not-allowed; opacity: .55; }
+.sourceRecommendationPanel { max-width: 1180px; margin: 0 auto 28px; padding: 22px 24px; border: 1px solid #dfe2e8; border-radius: 12px; background: #fff; }
+.sourceRecommendationHeader { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.sourceRecommendationHeader h2 { margin: 6px 0 4px; color: #303944; font-size: 20px; }
+.sourceRecommendButton { flex: 0 0 auto; padding: 10px 15px; border: 0; border-radius: 7px; background: #9e2038; color: #fff; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.sourceRecommendButton:hover { background: #7f182d; }
+.sourceRecommendButton:disabled { cursor: wait; opacity: .6; }
+.sourceRecommendationGroup { margin-top: 20px; padding-top: 18px; border-top: 1px solid #edf0f3; }
+.sourceRecommendationGroupHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.sourceRecommendationGroupHeader div { display: flex; align-items: baseline; gap: 9px; }
+.sourceRecommendationGroupHeader strong { color: #303944; font-size: 14px; }
+.sourceRecommendationGroupHeader span { color: #8a929d; font-size: 11px; }
+.sourceRecommendationGroupHeader a { color: #8d1e34; font-size: 11px; font-weight: 700; }
+.sourceRecommendationGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sourceRecommendationCard { padding: 12px 13px; border: 1px solid #e5e8ec; border-radius: 8px; background: #fbfcfd; }
+.sourceRecommendationCardTop { display: flex; justify-content: space-between; gap: 8px; }
+.sourceRecommendationCardTop strong { color: #3c4652; font-size: 12px; }
+.sourceRecommendationCardTop span { color: #9e2038; font-size: 11px; font-weight: 800; }
+.sourceRecommendationCard small { display: block; margin-top: 5px; color: #8a929d; font-size: 10px; }
+.sourceRecommendationCard p { margin: 7px 0 0; color: #68717d; font-size: 11px; line-height: 1.45; }
+@media (max-width: 900px) { .sourceRecommendationGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .sourceRecommendationHeader, .sourceRecommendationGroupHeader { display: block; } .sourceRecommendButton { margin-top: 14px; } .sourceRecommendationGroupHeader a { display: inline-block; margin-top: 7px; } .sourceRecommendationGrid { grid-template-columns: 1fr; } }
+.sourceRecommendationBackdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 28px; background: rgba(27, 35, 46, .48); }
+.sourceRecommendationDialog { width: min(1080px, 100%); max-height: min(820px, calc(100vh - 56px)); overflow: auto; padding: 26px 28px 22px; border: 1px solid #dfe2e8; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px rgba(22, 31, 43, .28); }
+.sourceRecommendationDialogHeader { display: flex; justify-content: space-between; gap: 22px; }
+.sourceRecommendationHeaderActions { display: flex; align-items: start; gap: 10px; }
+.sourceBatchButton { padding: 8px 12px; border: 1px solid #c9cfd7; border-radius: 7px; background: #fff; color: #8d1e34; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.sourceBatchButton:hover { border-color: #9e2038; background: #fbf0f2; }
+.sourceBatchButton:disabled { color: #9da5ae; cursor: not-allowed; }
+.sourceRecommendationDialogHeader h2 { margin: 7px 0 5px; color: #303944; font-size: 24px; }
+.sourceRecommendationDialogHeader p { margin: 0; color: #68717d; font-size: 13px; }
+.sourceRecommendationTabs { display: flex; gap: 8px; overflow-x: auto; margin: 24px 0 16px; padding-bottom: 4px; }
+.sourceRecommendationTabs button { flex: 0 0 auto; display: grid; gap: 3px; padding: 9px 12px; border: 1px solid #dfe2e8; border-radius: 8px; background: #fbfcfd; color: #68717d; font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
+.sourceRecommendationTabs button.active { border-color: #9e2038; background: #fbf0f2; color: #8d1e34; }
+.sourceRecommendationTabs small { color: #929aa4; font-size: 10px; }
+.sourceRecommendationDialogGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sourceRecommendationDialogCard { display: flex; gap: 10px; min-height: 105px; padding: 13px; border: 1px solid #e1e5ea; border-radius: 9px; background: #fbfcfd; cursor: pointer; }
+.sourceRecommendationDialogCard:hover { border-color: #bd8791; }
+.sourceRecommendationDialogCard.checked { border-color: #9e2038; background: #fff8f9; box-shadow: 0 0 0 1px #9e2038; }
+.sourceRecommendationDialogCard.enabled { background: #f2f7f4; cursor: default; }
+.sourceRecommendationDialogCard input { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 2px; accent-color: #9e2038; }
+.sourceRecommendationDialogCard > div { min-width: 0; }
+.sourceRecommendationDialogCard .sourceRecommendationCardTop strong { display: block; line-height: 1.35; }
+.sourceRecommendationDialogCard p { margin: 8px 0 0; color: #68717d; font-size: 11px; line-height: 1.45; }
+.emptySourceRecommendation { padding: 50px 20px; border: 1px dashed #cbd1d9; border-radius: 9px; background: #fbfcfd; color: #68717d; font-size: 12px; text-align: center; }
+.sourceRecommendationDialogFooter { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding-top: 17px; border-top: 1px solid #edf0f3; color: #8a929d; font-size: 11px; }
+.sourceRecommendationDialogFooter .sourceRecommendButton { margin-top: 0; }
+.sourcePageHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.sourcePageHeader > div:first-child { min-width: 0; }
+.sourceRecommendationControls { position: relative; flex: 0 0 auto; display: flex; align-items: flex-start; }
+.sourceRecommendHeaderButton { flex: 0 0 auto; padding: 10px 15px; border: 0; border-radius: 7px; background: #9e2038; color: #fff; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.sourceRecommendHeaderButton:hover { background: #7f182d; }
+.sourceRecommendHeaderButton:disabled { cursor: wait; opacity: .6; }
+.sourceRecommendationMessage { position: absolute; top: 46px; right: 0; width: 280px; margin: 0; text-align: right; }
+.emptySourceCatalog { max-width: 1180px; margin: 28px auto; padding: 44px 24px; border: 1px dashed #cbd1d9; border-radius: 12px; background: #fbfcfd; text-align: center; color: #68717d; }
+.emptySourceCatalog strong { display: block; color: #3c4652; font-size: 15px; }
+.emptySourceCatalog p { margin: 8px 0 0; font-size: 12px; }
+.followSearchDialog { width: min(760px, 100%); max-height: min(760px, calc(100vh - 48px)); overflow: auto; }
+.followSearchLoading, .followSearchEmpty { margin-top: 18px; padding: 30px 16px; border: 1px dashed #d4d9e0; border-radius: 9px; color: #68717d; text-align: center; font-size: 12px; }
+.followArticleGrid { display: grid; gap: 10px; margin-top: 18px; }
+.followArticleCard { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 12px; border: 1px solid #e1e5ea; border-radius: 9px; background: #fbfcfd; }
+.followArticleCard img { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; background: #eef1f5; }
+.followArticleCard span { color: #8a929d; font-size: 10px; }
+.followArticleCard h3 { margin: 4px 0; color: #303944; font-size: 13px; line-height: 1.35; }
+.followArticleCard p { margin: 0 0 7px; color: #68717d; font-size: 11px; line-height: 1.5; }
+.followArticleCard a { color: #8d1e34; font-size: 11px; font-weight: 700; }
+@media (max-width: 820px) { .sourceRecommendationBackdrop { padding: 14px; } .sourceRecommendationDialog { padding: 20px; } .sourceRecommendationDialogGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .sourcePageHeader { display: block; } .sourceRecommendHeaderButton { margin-top: 14px; } .sourceRecommendationDialogGrid { grid-template-columns: 1fr; } .sourceRecommendationDialogFooter { display: block; } .sourceRecommendationDialogFooter .sourceRecommendButton { margin-top: 12px; } }
 .labHeading { margin-top: 28px; }
-.categoryGrid { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.categoryGrid { width: 100%; max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .categoryCard { min-height: 108px; text-align: left; padding: 15px 16px; border: 1px solid #dfe2e8; border-radius: 10px; background: #fff; color: #697381; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
 .categoryCard:hover { border-color: #c18792; transform: translateY(-2px); }
 .categoryCard.active { border-color: #9e2038; box-shadow: 0 0 0 1px #9e2038; }
@@ -548,6 +636,15 @@ main.shell > .labChangeList { width: 100%; max-width: none; margin-left: 0; marg
 .runRadarButton:hover { background: #7e1e32; }
 .runRadarButton:disabled { opacity: .55; cursor: wait; }
 .radarError { margin: 12px 0 0; color: #a32038; font-size: 13px; }
+.radarRunningHint { display: block; margin-top: 9px; color: #526b9d; font-size: 11px; font-weight: 600; }
+.radarProgress { min-width: min(420px, 100%); }
+.radarProgressTrack { position: relative; height: 5px; overflow: hidden; margin-top: 8px; border-radius: 999px; background: #e8edf5; }
+.radarProgressTrack span { position: absolute; inset: 0 auto 0 0; width: 38%; border-radius: inherit; background: #526b9d; animation: radarProgressMove 1.4s ease-in-out infinite; }
+@keyframes radarProgressMove { 0% { transform: translateX(-110%); } 100% { transform: translateX(290%); } }
+.radarRunNotice { margin: 12px 0 0; padding: 11px 14px; border-radius: 8px; font-size: 13px; }
+.radarRunNotice.completed { color: #26775c; background: #edf8f3; }
+.radarRunNotice.completed_with_errors { color: #9a6517; background: #fff7e8; }
+.radarRunNotice.failed { color: #a32038; background: #fbebee; }
 .runSummary { width: 100%; display: grid; grid-template-columns: minmax(180px, 1.7fr) repeat(4, minmax(100px, 1fr)); gap: 1px; margin-top: 16px; overflow: hidden; background: #dfe2e8; border: 1px solid #dfe2e8; border-radius: 12px; }
 .runSummary > div { min-height: 94px; display: flex; flex-direction: column; justify-content: center; gap: 5px; padding: 16px 18px; background: #fff; }
 .runSummary strong { color: #252a33; font-size: 24px; line-height: 1.1; }
@@ -645,6 +742,8 @@ body[data-theme="dark"] .radarHero .heroInsight span { color: #f0cbd2; }
 .insightReportLink { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 8px 13px; border: 1px solid #9e2038; border-radius: 7px; color: #9e2038; background: #fff8f9; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .insightReportLink:hover { color: #fff; background: #9e2038; }
 .insightReportLink span { font-size: 15px; line-height: 1; }
+.labSettingsLink { display: inline-flex; margin-top: 22px; padding: 9px 13px; border: 1px solid rgba(255, 255, 255, .55); border-radius: 7px; color: #fff; background: rgba(255, 255, 255, .12); font-size: 12px; font-weight: 700; }
+.labSettingsLink:hover { color: #741827; background: #fff; }
 .publicationDate { display: inline-block; margin-left: 9px; padding: 3px 6px; border: 1px solid #e2e6eb; border-radius: 4px; color: #7b8490; background: #f7f8fa; font-size: 9px; font-weight: 700; letter-spacing: .05em; vertical-align: 2px; white-space: nowrap; }
 body[data-theme="dark"] .publicationDate { border-color: #334a60; color: #a9b8c8; background: #162433; }
 .reportPage { min-height: calc(100vh - 68px); padding: 46px clamp(20px, 6vw, 96px) 70px; background: #f1f2f5; color: #252a33; }
@@ -686,6 +785,90 @@ body[data-theme="dark"] .reportInsightGrid, body[data-theme="dark"] .reportFoote
 body[data-theme="dark"] .reportSignalTop, body[data-theme="dark"] .reportStats span, body[data-theme="dark"] .reportInsightGrid b, body[data-theme="dark"] .reportFooter { color: #8fa3b8; }
 @media (max-width: 700px) { .followStripInteractive { align-items: flex-start; flex-wrap: wrap; } .insightReportLink { width: 100%; justify-content: center; margin-left: 0; } .reportHeader { align-items: flex-start; flex-direction: column; } .reportPrint { width: 100%; } .reportStats { grid-template-columns: repeat(2, 1fr); } .reportInsightGrid { grid-template-columns: 1fr; gap: 12px; } }
 @media print { .nav, .reportPrint { display: none !important; } .reportPage { padding: 20px; background: #fff; } .reportSignal, .reportExecutive, .reportStats > div { break-inside: avoid; } }
+
+/* Console and Lab settings share the same dark surface system as the Lab page. */
+body[data-theme="dark"] .adminPageHeader h1,
+body[data-theme="dark"] .settingsPageHeader h1,
+body[data-theme="dark"] .settingsFormHeader h2,
+body[data-theme="dark"] .radarControlBar h2,
+body[data-theme="dark"] .runSummary strong,
+body[data-theme="dark"] .labSourceInfo strong,
+body[data-theme="dark"] .emptySourceCatalog strong { color: #f2f6fb; }
+body[data-theme="dark"] .adminPageHeader p,
+body[data-theme="dark"] .settingsPageHeader p,
+body[data-theme="dark"] .settingsFormHeader p,
+body[data-theme="dark"] .scheduleHeader p,
+body[data-theme="dark"] .radarControlBar p,
+body[data-theme="dark"] .runSummary small,
+body[data-theme="dark"] .runRow span:not(.runStatus),
+body[data-theme="dark"] .labSourceInfo small,
+body[data-theme="dark"] .labSourceInfo p,
+body[data-theme="dark"] .emptySourceCatalog { color: #a9b8c8; }
+body[data-theme="dark"] .adminKpis > div,
+body[data-theme="dark"] .schedulePanel,
+body[data-theme="dark"] .radarControlBar,
+body[data-theme="dark"] .runSummary > div,
+body[data-theme="dark"] .runRow,
+body[data-theme="dark"] .labSourcesPanel,
+body[data-theme="dark"] .settingsPanel,
+body[data-theme="dark"] .emptySourceCatalog { background: #111a25; border-color: #26384a; color: #e7edf5; }
+body[data-theme="dark"] .runSummary,
+body[data-theme="dark"] .runHistory,
+body[data-theme="dark"] .labSourceList { background: #26384a; border-color: #26384a; }
+body[data-theme="dark"] .scheduleFields,
+body[data-theme="dark"] .runRow p { border-color: #26384a; }
+body[data-theme="dark"] .scheduleFields label,
+body[data-theme="dark"] .switchLabel,
+body[data-theme="dark"] .scheduleFooter { color: #a9b8c8; }
+body[data-theme="dark"] .scheduleFields input,
+body[data-theme="dark"] .scheduleFields select,
+body[data-theme="dark"] .labWatchForm input,
+body[data-theme="dark"] .labWatchForm select { background: #162433; border-color: #334a60; color: #e7edf5; }
+body[data-theme="dark"] .labSourceRow { background: #111a25; border-color: #26384a; }
+body[data-theme="dark"] .labSourceRow.selected { background: #241820; border-color: #6b3442; }
+body[data-theme="dark"] .sourceUseButton { background: #162433; border-color: #40556a; color: #d7e3ee; }
+body[data-theme="dark"] .sourceUseButton.active { background: #9e2038; border-color: #d34b65; color: #fff; }
+body[data-theme="dark"] .sourceRecommendationNote { background: #2a1b23; color: #f0cbd2; }
+body[data-theme="dark"] .sourceRecommendationNote strong { color: #ff9aaa; }
+body[data-theme="dark"] .labSettingsLink { border-color: rgba(255, 255, 255, .34); background: rgba(255, 255, 255, .08); color: #fff; }
+body[data-theme="dark"] .labAdminPanel,
+body[data-theme="dark"] .membershipPanel,
+body[data-theme="dark"] .invitePanel { background: #111a25; border-color: #26384a; color: #e7edf5; }
+body[data-theme="dark"] .labAdminPanel .sectionHeading h2,
+body[data-theme="dark"] .membershipPanel .sectionHeading h2,
+body[data-theme="dark"] .invitePanel .sectionHeading h2 { color: #f2f6fb; }
+body[data-theme="dark"] .labAdminPanel .muted,
+body[data-theme="dark"] .membershipPanel .muted,
+body[data-theme="dark"] .invitePanel .muted { color: #a9b8c8; }
+body[data-theme="dark"] .labAdminForm input,
+body[data-theme="dark"] .labDirectoryEdit input,
+body[data-theme="dark"] .inviteForm input,
+body[data-theme="dark"] .inviteForm select,
+body[data-theme="dark"] .membershipRow select,
+body[data-theme="dark"] .memberLabRole select { background: #162433; border-color: #40556a; color: #e7edf5; }
+body[data-theme="dark"] .labDirectoryRow,
+body[data-theme="dark"] .labDirectoryEdit,
+body[data-theme="dark"] .membershipRow,
+body[data-theme="dark"] .membershipUserRow { background: #111a25; border-color: #26384a; }
+body[data-theme="dark"] .labDirectoryRow strong,
+body[data-theme="dark"] .membershipRow strong,
+body[data-theme="dark"] .memberIdentity strong,
+body[data-theme="dark"] .labDirectoryRow .labAdminMeta { color: #e7edf5; }
+body[data-theme="dark"] .labDirectoryRow small,
+body[data-theme="dark"] .membershipRow small,
+body[data-theme="dark"] .memberIdentity small,
+body[data-theme="dark"] .invitationRow small { color: #a9b8c8; }
+body[data-theme="dark"] .labDirectoryActions a,
+body[data-theme="dark"] .labDirectoryEdit button:not(:first-child),
+body[data-theme="dark"] .labDirectoryActions button { background: #162433; border-color: #40556a; color: #ff9aaa; }
+body[data-theme="dark"] .membershipTable { background: #26384a; border-color: #26384a; }
+body[data-theme="dark"] .memberIdentity,
+body[data-theme="dark"] .memberLabGrid,
+body[data-theme="dark"] .memberLabRole { background: #111a25; border-color: #26384a; }
+body[data-theme="dark"] .memberLabRole span { color: #d7e3ee; }
+body[data-theme="dark"] .invitationList,
+body[data-theme="dark"] .invitationRow { background: #111a25; border-color: #26384a; }
+body[data-theme="dark"] .invitationRow strong { color: #e7edf5; }
 .sourceAdminPanel { width: 100%; margin-bottom: 18px; padding: 20px 22px; border: 1px solid #dfe2e8; border-radius: 12px; background: #fff; }
 .sourceAdminPanel .sectionHeading { width: 100%; margin: 0 0 15px; }
 .sourceAdminPanel .sectionHeading h2 { margin: 7px 0 4px; font-size: 20px; }
