@@ -10,6 +10,8 @@ CREATE TABLE lab_profiles (
   research_scope JSONB NOT NULL DEFAULT '{}'::jsonb,
   watchlist JSONB NOT NULL DEFAULT '{}'::jsonb,
   key_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  signal_rules JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ai_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
   update_frequency VARCHAR(32) NOT NULL DEFAULT 'daily'
 );
 
@@ -56,6 +58,9 @@ CREATE TABLE analyses (
   matched_entities JSONB NOT NULL DEFAULT '[]'::jsonb,
   extracted_facts JSONB NOT NULL DEFAULT '[]'::jsonb,
   summary TEXT NOT NULL,
+  confidence NUMERIC(5,2),
+  evidence_citations JSONB NOT NULL DEFAULT '[]'::jsonb,
+  provider VARCHAR(32) NOT NULL DEFAULT 'rule_based',
   status VARCHAR(32) NOT NULL DEFAULT 'completed',
   analyzed_at TIMESTAMPTZ NOT NULL,
   raw_result JSONB NOT NULL DEFAULT '{}'::jsonb

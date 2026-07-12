@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_max_tool_turns: int = 6
+    ai_request_timeout_seconds: int = 45
+    ai_max_retries: int = 2
+    ai_max_input_chars: int = 12000
+    ai_max_output_tokens: int = 1200
     dify_base_url: str = "https://api.dify.ai/v1"
     dify_api_key: Optional[str] = None
     dify_search_api_key: Optional[str] = None
@@ -30,6 +34,7 @@ class Settings(BaseSettings):
     google_redirect_uri: str = "http://127.0.0.1:8000/api/auth/google/callback"
     frontend_url: str = "http://127.0.0.1:3000/"
     admin_emails: str = ""
+    seed_demo_data: bool = False
 
     model_config = SettingsConfigDict(env_file=(".env", "local.env"), extra="ignore")
 

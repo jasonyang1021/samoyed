@@ -22,7 +22,7 @@ from app.db.models import Analysis, Change, Document, Lab, LabAuditLog, LabChang
 from app.schemas.analysis import AnalysisRead, AnalysisRunResult
 from app.schemas.document import DocumentRead, IngestResult, SourceRead
 from app.schemas.change import ChangeCard, ChangeDetail, LabChangeCard
-from app.schemas.lab import LabCreate, LabRead, LabUpdate, LabWatchItemCreate, LabWatchItemRead
+from app.schemas.lab import LabCreate, LabRead, LabUpdate, LabProfileRead, LabProfileUpdate, LabWatchItemCreate, LabWatchItemRead
 from app.schemas.radar import RadarRunRead
 from app.schemas.watch import WatchItemCreate, WatchItemRead
 from app.schemas.schedule import ScheduleRead, ScheduleUpdate
@@ -110,6 +110,22 @@ def require_lab_admin(request: Request, lab_id: str, db: Session) -> dict:
     return user
 
 
+def require_lab_access(request: Request, lab_id: str, db: Session) -> dict | None:
+    """Enforce Lab membership when OAuth is enabled; keep local demo mode open."""
+    if request is None or not google_enabled():
+        return None
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    if user.get("role") == "system_admin":
+        return user
+    stored_user = db.query(User).filter(User.email == (user.get("email") or "").lower()).first()
+    membership = db.get(LabMembership, {"user_id": stored_user.id, "lab_id": lab_id}) if stored_user else None
+    if not membership:
+        raise HTTPException(status_code=403, detail="Lab membership required")
+    return user
+
+
 @router.get("/api/auth/google/start")
 def google_login() -> RedirectResponse:
     if not google_enabled():
@@ -165,6 +181,23 @@ def auth_logout(response: Response) -> dict[str, bool]:
     cross_site = _cross_site_cookie()
     response.delete_cookie("radar_session", secure=cross_site, samesite="none" if cross_site else "lax")
     return {"ok": True}
+
+
+@router.delete("/api/auth/me/data", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_data(request: Request, response: Response, db: Session = Depends(get_db)) -> Response:
+    """Delete the signed-in user's account data without deleting shared Lab content."""
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    stored_user = db.query(User).filter(User.email == (user.get("email") or "").lower()).first()
+    if stored_user is not None:
+        db.query(LabAuditLog).filter(LabAuditLog.actor_user_id == stored_user.id).delete(synchronize_session=False)
+        db.query(LabInvitation).filter(LabInvitation.invited_by == stored_user.id).update({LabInvitation.invited_by: None}, synchronize_session=False)
+        db.delete(stored_user)
+        db.commit()
+    response.delete_cookie("radar_session")
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 def _membership_read(membership: LabMembership) -> LabMembershipRead:
@@ -484,16 +517,49 @@ def labs(db: Session = Depends(get_db)) -> list[LabRead]:
 
 
 @router.get("/api/labs/{lab_id}", response_model=LabRead)
-def lab_detail(lab_id: str, db: Session = Depends(get_db)) -> LabRead:
+def lab_detail(lab_id: str, request: Request, db: Session = Depends(get_db)) -> LabRead:
+    require_lab_access(request, lab_id, db)
     lab = db.get(Lab, lab_id)
     if lab is None:
         raise HTTPException(status_code=404, detail="Lab not found")
     return _lab_read(lab)
 
 
+@router.get("/api/labs/{lab_id}/profile", response_model=LabProfileRead)
+def lab_profile(lab_id: str, request: Request, db: Session = Depends(get_db)) -> LabProfileRead:
+    require_lab_access(request, lab_id, db)
+    profile = db.get(LabProfile, lab_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Lab profile not found")
+    return LabProfileRead(lab_id=lab_id, research_scope=profile.research_scope, watchlist=profile.watchlist, key_questions=profile.key_questions, signal_rules=profile.signal_rules, ai_policy=profile.ai_policy, update_frequency=profile.update_frequency)
+
+
+@router.put("/api/labs/{lab_id}/profile", response_model=LabProfileRead)
+def update_lab_profile(lab_id: str, payload: LabProfileUpdate, request: Request, db: Session = Depends(get_db)) -> LabProfileRead:
+    require_lab_admin(request, lab_id, db)
+    if db.get(Lab, lab_id) is None:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    if len(payload.key_questions) > 50 or len(payload.signal_rules.get("keywords", [])) > 200:
+        raise HTTPException(status_code=422, detail="Lab profile is too large")
+    profile = db.get(LabProfile, lab_id)
+    if profile is None:
+        profile = LabProfile(lab_id=lab_id)
+        db.add(profile)
+    profile.research_scope = payload.research_scope
+    profile.watchlist = payload.watchlist
+    profile.key_questions = payload.key_questions
+    profile.signal_rules = payload.signal_rules
+    profile.ai_policy = payload.ai_policy
+    profile.update_frequency = payload.update_frequency
+    db.commit()
+    db.refresh(profile)
+    return LabProfileRead(lab_id=lab_id, research_scope=profile.research_scope, watchlist=profile.watchlist, key_questions=profile.key_questions, signal_rules=profile.signal_rules, ai_policy=profile.ai_policy, update_frequency=profile.update_frequency)
+
+
 @router.post("/api/labs/{lab_id}/assistant")
-def lab_assistant(lab_id: str, payload: AssistantAsk, db: Session = Depends(get_db)) -> dict[str, Any]:
+def lab_assistant(lab_id: str, payload: AssistantAsk, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Snowy uses controlled research tools so the model can be switched without changing Lab logic."""
+    require_lab_access(request, lab_id, db)
     lab = db.get(Lab, lab_id)
     if lab is None:
         raise HTTPException(status_code=404, detail="Lab not found")
@@ -521,20 +587,20 @@ def lab_assistant(lab_id: str, payload: AssistantAsk, db: Session = Depends(get_
         if name == "get_lab_profile":
             return {"lab_name": lab.name, "description": lab.description or "", "research_scope": profile.research_scope if profile else {}, "watchlist": profile.watchlist if profile else {}, "key_questions": profile.key_questions if profile else [], "followed_items": watch_items}
         if name == "get_today_changes":
-            return {"date_scope": "today", "changes": [_change_payload(change) for change in lab_today_changes(lab_id, db)]}
+            return {"date_scope": "today", "changes": [_change_payload(change) for change in lab_today_changes(lab_id, None, db)]}
         if name == "search_lab_articles":
             query = str(arguments.get("query", "")).strip().casefold()
             if not query:
                 return {"error": "query is required"}
             matches = []
-            for change in lab_month_changes(lab_id, db):
+            for change in lab_month_changes(lab_id, None, db):
                 haystack = " ".join([change.title, change.change_summary, change.why_relevant, change.impact, *change.watch_items]).casefold()
                 if all(term in haystack for term in query.split()):
                     matches.append(_change_payload(change))
             return {"query": query, "matches": matches[:8]}
         if name == "get_change_evidence":
             change_id = str(arguments.get("change_id", ""))
-            for change in [*lab_today_changes(lab_id, db), *lab_month_changes(lab_id, db)]:
+            for change in [*lab_today_changes(lab_id, None, db), *lab_month_changes(lab_id, None, db)]:
                 if change.id == change_id:
                     return {"change": _change_payload(change), "evidence": [_evidence_dict(item) for item in change.evidence], "next_watch_points": change.next_watch_points}
             return {"error": "change not found for this Lab"}
@@ -715,6 +781,7 @@ def _lab_watch_item_read(item: WatchItem) -> LabWatchItemRead:
 
 @router.get("/api/labs/{lab_id}/watch-items", response_model=list[LabWatchItemRead])
 def lab_watch_items(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabWatchItemRead]:
+    require_lab_access(request, lab_id, db)
     if db.get(Lab, lab_id) is None:
         raise HTTPException(status_code=404, detail="Lab not found")
     links = db.query(LabWatchItem).filter(LabWatchItem.lab_id == lab_id).all()
@@ -918,6 +985,9 @@ def _to_analysis_read(analysis) -> AnalysisRead:
         matched_entities=analysis.matched_entities,
         extracted_facts=analysis.extracted_facts,
         summary=analysis.summary,
+        confidence=float(analysis.confidence) if analysis.confidence is not None else None,
+        evidence_citations=analysis.evidence_citations,
+        provider=analysis.provider,
         status=analysis.status,
         analyzed_at=analysis.analyzed_at,
         generated_change_id=(analysis.raw_result or {}).get("generated_change_id"),
@@ -1008,7 +1078,8 @@ def update_schedule(payload: ScheduleUpdate, db: Session = Depends(get_db), _: O
 
 
 @router.get("/api/labs/{lab_id}/changes/today", response_model=list[LabChangeCard])
-def lab_today_changes(lab_id: str, db: Session = Depends(get_db)) -> list[LabChangeCard]:
+def lab_today_changes(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabChangeCard]:
+    require_lab_access(request, lab_id, db)
     lab = db.get(Lab, lab_id)
     if lab is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab not found")
@@ -1021,7 +1092,8 @@ def lab_today_changes(lab_id: str, db: Session = Depends(get_db)) -> list[LabCha
 
 
 @router.get("/api/labs/{lab_id}/changes/week", response_model=list[LabChangeCard])
-def lab_week_changes(lab_id: str, db: Session = Depends(get_db)) -> list[LabChangeCard]:
+def lab_week_changes(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabChangeCard]:
+    require_lab_access(request, lab_id, db)
     lab = db.get(Lab, lab_id)
     if lab is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab not found")
@@ -1034,7 +1106,8 @@ def lab_week_changes(lab_id: str, db: Session = Depends(get_db)) -> list[LabChan
 
 
 @router.get("/api/labs/{lab_id}/changes/month", response_model=list[LabChangeCard])
-def lab_month_changes(lab_id: str, db: Session = Depends(get_db)) -> list[LabChangeCard]:
+def lab_month_changes(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabChangeCard]:
+    require_lab_access(request, lab_id, db)
     lab = db.get(Lab, lab_id)
     if lab is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab not found")

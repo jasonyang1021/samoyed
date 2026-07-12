@@ -102,6 +102,8 @@ class LabProfile(Base):
     research_scope: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     watchlist: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     key_questions: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    signal_rules: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    ai_policy: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     update_frequency: Mapped[str] = mapped_column(String(32), default="daily", nullable=False)
 
     lab: Mapped[Lab] = relationship(back_populates="profile")
@@ -155,6 +157,9 @@ class Analysis(Base):
     matched_entities: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     extracted_facts: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[Optional[float]] = mapped_column(Numeric(5, 2))
+    evidence_citations: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), default="rule_based", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="completed", nullable=False)
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     raw_result: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)

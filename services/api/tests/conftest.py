@@ -5,7 +5,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.database import Base, get_db
 from app.db.models import Change, EntityState, Lab, LabChangeInterpretation, LabProfile, Source, WatchItem
-from app.db.seed import seed_database
+from examples.demo_seed import seed_database
 from app.main import app
 from app.api.routes import require_admin
 

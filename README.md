@@ -144,6 +144,8 @@ python -m app.db.seed
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+默认 seed 只创建基础运行配置，不导入任何 Lab、文章或领域数据。若要在本地演示使用示例数据，显式设置 `SEED_DEMO_DATA=true`；示例数据位于 `services/api/examples/demo_seed.py`，不应直接用于生产。
+
 ### 停止和清理
 
 停止容器但保留数据：

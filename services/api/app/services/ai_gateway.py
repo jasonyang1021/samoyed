@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import ast
 import re
+import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -12,6 +13,22 @@ from app.core.config import settings
 
 class AIUnavailableError(RuntimeError):
     pass
+
+
+def _urlopen_retry(request: Request, *, timeout: int | None = None):
+    """Bounded retry for transient provider failures; never retries bad auth or 4xx."""
+    attempts = max(1, settings.ai_max_retries + 1)
+    for attempt in range(attempts):
+        try:
+            return urlopen(request, timeout=timeout or settings.ai_request_timeout_seconds)
+        except HTTPError as error:
+            if error.code not in {408, 425, 429, 500, 502, 503, 504} or attempt == attempts - 1:
+                raise
+            time.sleep(0.25 * (2**attempt))
+        except (URLError, TimeoutError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.25 * (2**attempt))
 
 
 def _parse_json_text(value: str) -> dict[str, Any]:
@@ -139,7 +156,7 @@ def _call_dify(prompt: str, schema_name: str, schema: dict[str, Any], *, web_sea
     if not api_key:
         raise AIUnavailableError("Dify API key is not configured")
     schema_text = json.dumps(schema, ensure_ascii=False)
-    workflow_prompt = f"{prompt}\n\nReturn ONLY valid JSON for schema {schema_name}. Do not use Markdown fences. Schema:\n{schema_text}"
+    workflow_prompt = f"{prompt}\n\nReturn ONLY valid JSON for schema {schema_name}. Do not use Markdown fences. Keep the response concise and within approximately {settings.ai_max_output_tokens} output tokens. Schema:\n{schema_text}"
     prompt_variable = _dify_prompt_variable(api_key)
     body = {"inputs": {prompt_variable: workflow_prompt, "schema_name": schema_name, "schema": schema_text}, "user": settings.dify_user, "response_mode": "blocking"}
     request = Request(
@@ -149,7 +166,7 @@ def _call_dify(prompt: str, schema_name: str, schema: dict[str, Any], *, web_sea
         method="POST",
     )
     try:
-        with urlopen(request, timeout=90) as response:
+        with _urlopen_retry(request) as response:
             return _dify_result(json.loads(response.read().decode("utf-8")))
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="ignore")[:200]
@@ -221,6 +238,7 @@ def call_ai_json(prompt: str, schema_name: str, schema: dict[str, Any], *, web_s
         "model": settings.openai_model,
         "store": False,
         "input": prompt,
+        "max_output_tokens": settings.ai_max_output_tokens,
         "text": {"format": {"type": "json_schema", "name": schema_name, "schema": schema, "strict": True}},
     }
     if web_search:
@@ -232,7 +250,7 @@ def call_ai_json(prompt: str, schema_name: str, schema: dict[str, Any], *, web_s
         method="POST",
     )
     try:
-        with urlopen(request, timeout=90) as response:
+        with _urlopen_retry(request) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
         raise AIUnavailableError(f"OpenAI request failed: {error}") from error
@@ -252,7 +270,7 @@ def _deepseek_request(body: dict[str, Any]) -> dict[str, Any]:
         method="POST",
     )
     try:
-        with urlopen(request, timeout=90) as response:
+        with _urlopen_retry(request) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise AIUnavailableError("DeepSeek response was not an object")
@@ -284,7 +302,7 @@ def _openai_chat_request(body: dict[str, Any]) -> dict[str, Any]:
         method="POST",
     )
     try:
-        with urlopen(request, timeout=90) as response:
+        with _urlopen_retry(request) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise AIUnavailableError("OpenAI response was not an object")
@@ -313,6 +331,7 @@ def _call_deepseek_json(prompt: str, schema_name: str, schema: dict[str, Any]) -
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.2,
+        "max_tokens": settings.ai_max_output_tokens,
         "stream": False,
     }
     message = _deepseek_message(_deepseek_request(body))
@@ -341,7 +360,7 @@ def call_chat_agent(
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     for _ in range(max_turns or settings.deepseek_max_tool_turns):
         model = settings.deepseek_model if provider == "deepseek" else settings.openai_model
-        payload = _agent_request(provider, {"model": model, "messages": messages, "tools": tools, "tool_choice": "auto", "temperature": 0.2, "stream": False})
+        payload = _agent_request(provider, {"model": model, "messages": messages, "tools": tools, "tool_choice": "auto", "temperature": 0.2, "max_tokens": settings.ai_max_output_tokens, "stream": False})
         message = _deepseek_message(payload)
         tool_calls = message.get("tool_calls") or []
         if not tool_calls:
@@ -373,7 +392,7 @@ def call_chat_agent(
         "content": "停止调用工具。请只根据已经获得的研究证据完成最终回答，并严格返回之前要求的 JSON。不要再请求任何工具。",
     })
     final_model = settings.deepseek_model if provider == "deepseek" else settings.openai_model
-    final_payload = _agent_request(provider, {"model": final_model, "messages": messages, "temperature": 0.2, "stream": False})
+    final_payload = _agent_request(provider, {"model": final_model, "messages": messages, "temperature": 0.2, "max_tokens": settings.ai_max_output_tokens, "stream": False})
     final_message = _deepseek_message(final_payload)
     final_content = final_message.get("content")
     if not isinstance(final_content, str):
