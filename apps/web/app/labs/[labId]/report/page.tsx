@@ -1,5 +1,4 @@
-import { getLabTodayChanges, getLabMonthChanges } from "../../../lib/api";
-import { getCurrentUser, getLab, getLabWatchItems } from "../../../lib/serverApi";
+import { getCurrentUser, getLab, getLabMonthChanges, getLabTodayChanges, getLabWatchItems } from "../../../lib/serverApi";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +6,8 @@ export const dynamic = "force-dynamic";
 export default async function LabInsightReport({ params }: { params: Promise<{ labId: string }> }) {
   const user = await getCurrentUser();
   if (!user.authenticated) redirect("/");
-  const { labId } = await params;
+  const { labId: encodedLabId } = await params;
+  const labId = decodeURIComponent(encodedLabId);
   if (!user.lab_ids.includes(labId)) redirect("/");
   const [lab, today, month, watchItems] = await Promise.all([getLab(labId), getLabTodayChanges(labId), getLabMonthChanges(labId), getLabWatchItems(labId)]);
   const date = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long" }).format(new Date());

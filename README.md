@@ -1,74 +1,72 @@
 # Samoyed
 
-Samoyed 是一个面向技术研究所和研发 Lab 的可配置研究助手框架。它每天从公开新闻、论文、会议、专利和企业资料中发现新信号，经过去重、相关性判断和 AI 分析后，形成：
+Samoyed 是一个面向技术研究所、研发团队和 Research Lab 的开源研究信号雷达。
 
-- 研究所公共 Dashboard：今天发生了什么？
-- Lab 专属 My Lab：哪些变化与当前 Lab 有关？为什么相关？会影响什么判断？
-- 文章详情：原文、作者、来源、链接、AI 判断和 Lab 参考
-- AI 洞察报告：按 Lab 汇总今日和本月的重要变化
+它从公开新闻、论文、会议、专利和企业资料中持续发现新变化，经过标准化、去重、相关性判断和 AI 分析后，帮助团队回答三个问题：
 
-项目的产品方向不是资料上传或 Document AI，而是可替换数据源和 AI Provider 的 Research Feed：
+- 今天发生了什么？
+- 哪些变化与我的 Lab 有关？
+- 这些变化会如何影响当前的研究判断？
 
-```text
+Samoyed 的核心不是资料上传或 Document AI，而是一条可替换的数据与 AI 流水线：
+
+~~~text
 公开来源
-  -> 采集
-  -> 去重
-  -> 资料标准化
-  -> AI / 规则相关性判断
-  -> 公共变化
-  -> Lab Profile 匹配
-  -> Lab 专属解释
-  -> Dashboard / My Lab / 洞察报告
-```
+  → 采集
+  → 去重与标准化
+  → AI / 规则分析
+  → 公共研究变化
+  → Lab Profile 匹配
+  → Lab 专属解释
+  → Dashboard / My Lab / 洞察报告
+~~~
 
-## 当前能力
+> 项目仍处于早期开发阶段。它适合本地研究、产品验证和二次开发，不应直接作为未经加固的生产系统使用。
+
+## 功能概览
 
 ### 研究信息
 
-- 2026 年资料抓取和过滤
-- 按文章发布日期划分“今日新增”和“本月新增”
-- 没有发布日期的资料不会进入今日或本月列表
-- 企业新闻、学术论文、会议、专利新闻和其他技术信息分类
-- 保留原始标题、正文或摘要、作者、来源、原文链接和发布时间
-- 去重支持 canonical URL 和内容指纹
+- 按发布日期区分“今日新增”和“本月新增”
+- 支持企业新闻、学术论文、会议、专利和其他技术资料
+- 保留标题、摘要或正文、作者、来源、原文链接和发布时间
+- 使用 canonical URL 和内容指纹进行去重
+- 对来源、抓取、分析和雷达运行保留状态记录
 
 ### Lab 工作流
 
-项目包含一组用于本地演示的公开技术领域示例数据。生产环境应删除或替换这些 demo seed，并为每个 Lab 配置独立的：
+每个 Lab 可以独立配置：
 
-- 研究定位
-- 企业关注对象
-- 高校和教授关注对象
-- 学术会议和技术主题
-- Lab 相关变化
-- “为什么相关”和“判断影响”
+- 研究定位和关键问题
+- 企业、高校、教授、会议和技术主题
+- 关注对象及其说明
+- 相关变化、相关原因和判断影响
 
-### 用户和权限
+系统提供公共 Dashboard、My Lab、文章详情和 Lab 洞察报告四类主要视图。
+
+### 用户与权限
 
 - Google OAuth 登录
-- 系统管理员
-- Lab 管理员
-- Lab 用户
-- 游客
-- 系统管理员可以管理 Lab、成员、邀请、自动运行和数据来源
-- Lab 管理员可以配置所属 Lab 的关注对象
-- 游客只能查看公共 Dashboard
+- 系统管理员、Lab 管理员、Lab 用户和游客角色
+- 系统管理员可以管理 Lab、成员、邀请、来源和自动运行
+- Lab 管理员可以管理所属 Lab 的关注对象和成员权限
+- 游客只能访问公共 Dashboard
 
 ### AI 能力
 
-AI 通过可替换的 AI Gateway 接入，支持：
+AI 通过可替换的 Gateway 接入，目前支持：
 
 - Dify Workflow
 - OpenAI Responses API
-- Rule-based fallback
-- AI 网页检索
+- DeepSeek 助手
+- 规则分析 fallback
+- 公开网页检索
 - 文章中英日翻译
-- 文章相关性判断、摘要、变化判断和重要性判断
-- Lab 专属解释和洞察报告
+- 相关性、摘要、变化、重要性和 Lab 影响判断
 
-AI 输出必须被视为研究辅助结果，而不是事实、投资建议或工程结论。系统会标记 Dify/DeepSeek 生成结果与规则降级结果，并尽量保留来源链接和检索状态。
+AI 服务不可用时，系统可以用规则分析完成基础流程。页面会标注结果来自 AI Provider，还是规则结合 Lab 范围生成。
 
-当 AI 服务不可用时，系统可以使用规则分析继续完成基础数据流转。页面会显示当前判断是 AI 生成还是规则结合 Lab 范围生成。
+AI 输出是研究辅助结果，不是事实认定、投资建议或工程结论。系统会尽量保留来源链接，使用者应自行核验原始资料。
 
 ## 技术栈
 
@@ -77,41 +75,34 @@ AI 输出必须被视为研究辅助结果，而不是事实、投资建议或�
 | Web | Next.js 16、React 19、TypeScript |
 | API | FastAPI、Python、Pydantic |
 | ORM | SQLAlchemy 2 |
-| 数据库 | PostgreSQL 16；本地直跑也支持 SQLite |
+| 数据库 | PostgreSQL 16；本地开发支持 SQLite |
 | 迁移 | Alembic |
-| 缓存和任务基础设施 | Redis |
-| 对象存储基础设施 | MinIO |
+| 缓存与基础设施 | Redis、MinIO |
 | 登录 | Google OAuth 2.0 |
-| AI | Dify、OpenAI、规则分析 fallback |
-| 部署基础 | Docker Compose，可继续部署到 AWS |
+| AI | Dify、OpenAI、DeepSeek、规则分析 |
+| 本地编排 | Docker Compose |
 
-## 快速启动：Docker Compose
+## 快速开始
 
-### 1. 准备环境
+### Docker Compose
 
-需要安装：
+需要先安装 Docker Desktop、Docker Compose 和 Git。
 
-- Docker Desktop
-- Docker Compose
-- Git
-
-### 2. 配置环境变量
-
-```bash
+~~~bash
 cp .env.example .env
-```
+~~~
 
-至少修改：
+至少修改开发密码和应用配置：
 
-```env
-POSTGRES_PASSWORD=修改为强密码
-MINIO_ROOT_PASSWORD=修改为强密码
-SECRET_KEY=生成一个足够长的随机字符串
-```
+~~~env
+POSTGRES_PASSWORD=设置一个本地开发密码
+MINIO_ROOT_PASSWORD=设置一个本地开发密码
+SECRET_KEY=设置一段足够长的随机字符串
+~~~
 
-如果暂时不接入登录和 AI，可以先保留以下默认值：
+如果暂时不接入 Google 登录和外部 AI，可以保留规则模式：
 
-```env
+~~~env
 AI_PROVIDER=rule_based
 OPENAI_API_KEY=
 DIFY_API_KEY=
@@ -119,66 +110,68 @@ DIFY_SEARCH_API_KEY=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 ADMIN_EMAILS=
-```
+~~~
 
-### 3. 启动
+启动全部服务：
 
-```bash
+~~~bash
 docker compose up --build
-```
+~~~
 
-访问：
+服务地址：
 
-- Web：http://localhost:3000
-- API：http://localhost:8000
-- 健康检查：http://localhost:8000/health
-- 就绪检查：http://localhost:8000/health/ready
-- Swagger API 文档：http://localhost:8000/docs
-- MinIO Console：http://localhost:9001
+| 服务 | 地址 |
+| --- | --- |
+| Web | http://localhost:3000 |
+| API | http://localhost:8000 |
+| 健康检查 | http://localhost:8000/health |
+| 就绪检查 | http://localhost:8000/health/ready |
+| Swagger | http://localhost:8000/docs |
+| MinIO Console | http://localhost:9001 |
 
-API 容器启动时会自动执行：
+默认 seed 只创建基础运行配置，不会导入 Lab、文章或领域示例数据。需要演示数据时，显式设置：
 
-```bash
-alembic upgrade head
-python -m app.db.seed
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
+~~~env
+SEED_DEMO_DATA=true
+~~~
 
-默认 seed 只创建基础运行配置，不导入任何 Lab、文章或领域数据。若要在本地演示使用示例数据，显式设置 `SEED_DEMO_DATA=true`；示例数据位于 `services/api/examples/demo_seed.py`，不应直接用于生产。
+示例数据位于 services/api/examples/demo_seed.py，不应直接用于生产环境。
 
-### 停止和清理
+停止服务但保留数据：
 
-停止容器但保留数据：
-
-```bash
+~~~bash
 docker compose down
-```
+~~~
 
-停止容器并删除 PostgreSQL、Redis、MinIO 数据卷：
+停止服务并删除本地数据卷：
 
-```bash
+~~~bash
 docker compose down -v
-```
+~~~
 
-第二个命令会删除本地开发数据，请谨慎使用。
+### 本地开发
 
-## 本地开发
+#### 启动 API
 
-### API
-
-```bash
+~~~bash
 cd services/api
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+~~~
 
-touch local.env
-cat >> local.env <<'EOF'
+创建 local.env，使用 SQLite 运行本地 API：
+
+~~~env
 DATABASE_URL=sqlite+pysqlite:////private/tmp/research-radar-preview.db
-REDIS_URL=redis://localhost:6379/0
-MINIO_ENDPOINT=localhost:9000
+REDIS_URL=redis://127.0.0.1:6379/0
+MINIO_ENDPOINT=127.0.0.1:9000
 MINIO_SECURE=false
-EOF
+~~~
+
+执行迁移、初始化并启动：
+
+~~~bash
 set -a
 source local.env
 set +a
@@ -186,340 +179,319 @@ set +a
 alembic upgrade head
 python -m app.db.seed
 uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
+~~~
 
-如果使用 SQLite，本地环境可以配置：
+如果需要本地演示数据，设置 SEED_DEMO_DATA=true 后重新执行 seed。
 
-```env
-DATABASE_URL=sqlite+pysqlite:////private/tmp/research-radar-preview.db
-```
+#### 启动 Web
 
-### Web
+另开一个终端：
 
-```bash
+~~~bash
 cd apps/web
 npm install
 npm run dev
-```
+~~~
 
-默认访问 http://localhost:3000。
+默认访问 http://localhost:3000。Web 支持以下 API 地址配置：
 
-Web 端支持以下 API 地址变量：
-
-```env
+~~~env
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 API_INTERNAL_BASE_URL=http://127.0.0.1:8000
-```
+~~~
 
-Docker 中 `API_INTERNAL_BASE_URL` 应指向 `http://api:8000`，浏览器端的 `NEXT_PUBLIC_API_BASE_URL` 应指向浏览器可以访问的地址。
+Docker 环境中，API_INTERNAL_BASE_URL 应指向 http://api:8000，而 NEXT_PUBLIC_API_BASE_URL 应指向浏览器可访问的地址。
 
-## 环境变量
+## 配置说明
 
-完整模板见 `.env.example`。主要变量如下：
+完整模板见 .env.example。
 
-### 数据库和基础设施
+### 数据库与基础设施
 
 | 变量 | 说明 |
 | --- | --- |
-| `DATABASE_URL` | SQLAlchemy 数据库连接串；Docker 会自动覆盖为 PostgreSQL |
-| `POSTGRES_DB` | PostgreSQL 数据库名 |
-| `POSTGRES_USER` | PostgreSQL 用户 |
-| `POSTGRES_PASSWORD` | PostgreSQL 密码 |
-| `REDIS_URL` | Redis 地址 |
-| `MINIO_ENDPOINT` | MinIO 地址 |
-| `MINIO_ROOT_USER` | MinIO 管理员用户名 |
-| `MINIO_ROOT_PASSWORD` | MinIO 管理员密码 |
-| `SECRET_KEY` | 应用会话和安全配置使用的密钥 |
+| DATABASE_URL | SQLAlchemy 数据库连接串；Docker 会注入 PostgreSQL 地址 |
+| POSTGRES_DB | PostgreSQL 数据库名 |
+| POSTGRES_USER | PostgreSQL 用户名 |
+| POSTGRES_PASSWORD | PostgreSQL 密码 |
+| REDIS_URL | Redis 地址 |
+| MINIO_ENDPOINT | MinIO 地址 |
+| MINIO_ROOT_USER | MinIO 管理员用户名 |
+| MINIO_ROOT_PASSWORD | MinIO 管理员密码 |
+| SECRET_KEY | 应用安全配置使用的密钥，不应提交到 Git |
+| APP_ENV | 运行环境，例如 development 或 production |
 
 ### AI
 
 | 变量 | 说明 |
 | --- | --- |
-| `AI_PROVIDER` | 文章分析使用的 provider：`rule_based`、`deepseek`、`openai`、`dify` 或 `auto` |
-| `ASSISTANT_PROVIDER` | Snowy 助手使用的 provider；默认 `deepseek`，以后切换助手模型只改这里 |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key；Snowy Agent 使用 |
-| `DEEPSEEK_BASE_URL` | DeepSeek API 地址，默认 `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | DeepSeek 模型名称 |
-| `DEEPSEEK_MAX_TOOL_TURNS` | Snowy Agent 单次最多调用研究工具的轮数 |
-| `ASSISTANT_WEB_SEARCH_ENABLED` | 是否允许 Snowy 在 Lab 数据不足时搜索公开网页，默认 `true` |
-| `OPENAI_API_KEY` | OpenAI API Key |
-| `OPENAI_MODEL` | OpenAI Responses API 使用的模型 |
-| `OPENAI_AI_SEARCH_ENABLED` | 是否允许 AI 网页检索 |
-| `DIFY_BASE_URL` | Dify API 地址 |
-| `DIFY_API_KEY` | 文章分析 Workflow 的 API Key |
-| `DIFY_SEARCH_API_KEY` | 网页检索 Workflow 的 API Key |
-| `DIFY_USER` | Dify 请求使用的 user 标识 |
-| `PATENTSVIEW_API_KEY` | PatentsView PatentSearch API Key；未配置时该来源显示为“需 API Key” |
+| AI_PROVIDER | 分析 Provider：rule_based、deepseek、openai、dify 或 auto |
+| ASSISTANT_PROVIDER | Snowy 助手使用的 Provider，默认 deepseek |
+| DEEPSEEK_API_KEY | DeepSeek API Key |
+| DEEPSEEK_BASE_URL | DeepSeek API 地址 |
+| DEEPSEEK_MODEL | DeepSeek 模型名称 |
+| DEEPSEEK_MAX_TOOL_TURNS | Snowy 单次最多调用研究工具的轮数 |
+| ASSISTANT_WEB_SEARCH_ENABLED | 是否允许 Snowy 搜索公开网页 |
+| OPENAI_API_KEY | OpenAI API Key |
+| OPENAI_MODEL | OpenAI 使用的模型 |
+| OPENAI_AI_SEARCH_ENABLED | 是否允许 OpenAI 网页检索 |
+| DIFY_BASE_URL | Dify API 地址 |
+| DIFY_API_KEY | 文章分析 Workflow 的 API Key |
+| DIFY_SEARCH_API_KEY | 网页检索 Workflow 的 API Key |
+| DIFY_USER | Dify 请求中的 user 标识 |
+| PATENTSVIEW_API_KEY | PatentsView API Key；未配置时该来源会跳过 |
 
 ### 登录
 
 | 变量 | 说明 |
 | --- | --- |
-| `GOOGLE_CLIENT_ID` | Google OAuth Web Application Client ID |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret |
-| `GOOGLE_REDIRECT_URI` | OAuth 回调地址 |
-| `FRONTEND_URL` | 登录成功后的前端地址 |
-| `ADMIN_EMAILS` | 系统管理员邮箱，多个邮箱用逗号分隔 |
+| GOOGLE_CLIENT_ID | Google OAuth Web Application Client ID |
+| GOOGLE_CLIENT_SECRET | Google OAuth Client Secret |
+| GOOGLE_REDIRECT_URI | OAuth 回调地址 |
+| FRONTEND_URL | 登录成功后的前端地址 |
+| ADMIN_EMAILS | 系统管理员邮箱，多个邮箱用逗号分隔 |
 
 本地回调地址示例：
 
-```text
+~~~text
 http://127.0.0.1:8000/api/auth/google/callback
-```
+~~~
 
-生产环境必须替换为 HTTPS 域名，并在 Google Cloud OAuth 配置中加入完全一致的回调地址。
+生产环境应使用 HTTPS，并在 Google Cloud OAuth 配置中加入完全一致的回调地址。
 
 ## Dify 配置
 
-Dify 配置文档见 [`docs/DIFY_WORKFLOW_SETUP.md`](docs/DIFY_WORKFLOW_SETUP.md)。
+详细步骤见 docs/DIFY_WORKFLOW_SETUP.md。
 
 需要创建两个已发布的 Workflow：
 
-1. `Research Radar Analyzer`
-2. `Research Radar Search`
+1. Research Radar Analyzer
+2. Research Radar Search
 
-两个 Workflow 都需要接收：
+两个 Workflow 都需要接收 prompt、schema_name 和 schema，并通过 End 节点返回名为 result 的 JSON 文本。
 
-- `prompt`
-- `schema_name`
-- `schema`
+配置完成后：
 
-并通过 End 节点返回名为 `result` 的 JSON 文本。
-
-配置完成后设置：
-
-```env
+~~~env
 AI_PROVIDER=dify
 DIFY_API_KEY=你的分析工作流密钥
 DIFY_SEARCH_API_KEY=你的检索工作流密钥
-```
+~~~
 
-检查：
+检查连接状态：
 
-```bash
+~~~bash
 curl http://localhost:8000/api/ai/status
 curl http://localhost:8000/api/ai/dify/check
-```
+~~~
 
-注意：AI 分析是外部网络调用。Dify 响应慢或不可用时，系统会回退到规则分析；生产环境建议为抓取和 AI 分析拆分任务队列，并配置超时、重试和限流。
+AI 分析是外部网络调用。Provider 响应慢或不可用时，系统会回退到规则分析；生产环境应额外配置任务队列、超时、重试、限流和失败告警。
 
-## 数据来源和时间口径
+## 数据来源与时间口径
 
-来源配置位于 `services/api/app/db/seed.py`，当前覆盖：
+当前示例来源覆盖：
 
-- arXiv
-- Crossref
-- OpenAlex
-- Semantic Scholar
-- Europe PMC
+- arXiv、Crossref、OpenAlex、Semantic Scholar、Europe PMC
 - Google News RSS
-- Google Patents 尝试接口
-- PatentsView（需要 `PATENTSVIEW_API_KEY`）
-- Intel Newsroom
-- Samsung Electro-Mechanics
-- IMAPS
-- Nippon Electric Glass
-- Micron、TSMC、NVIDIA 相关公开新闻检索
+- Google Patents 尝试接口和 PatentsView
+- Intel Newsroom、Samsung Electro-Mechanics、IMAPS、Nippon Electric Glass
+- Micron、TSMC、NVIDIA 等企业的公开信息
 
-管理员控制台的“数据来源”区域会显示每个来源的：
+来源配置位于 services/api/app/db/seed.py。不同来源的 API 限制、使用条款和可保存内容可能不同，部署前应逐一核对。
 
-- 来源类型
-- 来源地址
-- 已入库资料数量
-- 最新发布日期
-- 最近抓取时间
-- 当前状态
-
-时间规则：
+时间规则如下：
 
 - 今日新增：发布日期属于今天
 - 本月新增：发布日期属于本月 1 号到昨天
-- 其他月份：暂不展示在今日和本月列表
-- 没有发布日期：不进入今日和本月列表
-- 抓取时间只用于追踪采集状态，不用于判断文章属于哪一天
+- 没有发布日期的资料：不进入今日和本月列表
+- 抓取时间：只用于追踪采集状态，不用于判断文章归属日期
 
 执行一次来源抓取：
 
-```bash
+~~~bash
 curl -X POST http://localhost:8000/api/ingest/run
-```
+~~~
 
 执行完整雷达流程：
 
-```bash
+~~~bash
 curl -X POST http://localhost:8000/api/radar/run
-```
+~~~
 
-完整流程包含来源抓取、AI 网页检索、待处理资料分析和变化生成。Dify 运行较慢时，建议先单独抓取，再单独运行分析：
+也可以拆开执行：
 
-```bash
+~~~bash
 curl -X POST http://localhost:8000/api/ingest/run
 curl -X POST http://localhost:8000/api/analyze/run
-```
+~~~
 
-## 主要页面
+## 页面与 API
+
+### 主要页面
 
 | 页面 | 说明 |
 | --- | --- |
-| `/` | 公共 Dashboard、今日热点和本月新增 |
-| `/labs/{lab_id}` | Lab 专属变化、关注对象和 Lab 判断 |
-| `/labs/{lab_id}/report` | Lab AI 洞察报告和打印视图 |
-| `/labs/{lab_id}/settings` | Lab 关注对象配置，管理员可用 |
-| `/changes/{change_id}` | 原文、作者、来源、链接、AI 判断和 Lab 参考 |
-| `/admin` | 来源、Lab、成员、自动运行和雷达执行记录 |
+| / | 公共 Dashboard、今日热点和本月新增 |
+| /labs/{lab_id} | Lab 专属变化、关注对象和 Lab 判断 |
+| /labs/{lab_id}/report | Lab 洞察报告和打印视图 |
+| /labs/{lab_id}/settings | Lab 关注对象、成员和邀请设置 |
+| /changes/{change_id} | 原文、作者、来源、链接和 Lab 判断 |
+| /admin | 来源、Lab、成员、自动运行和雷达记录 |
 
-文章详情支持单篇切换：
+文章详情支持 English、中文和 日本語。系统头像菜单支持页面语言和亮色 / 深色主题设置。
 
-- English
-- 中文
-- 日本語
+### 常用 API
 
-系统头像菜单支持独立的系统语言和亮色 / 深色页面风格设置。
+~~~text
+GET  /health
+GET  /health/ready
+GET  /docs
 
-## API 速查
+GET  /api/changes/today
+GET  /api/changes/month
+GET  /api/changes/{change_id}
+GET  /api/documents/{document_id}
+GET  /api/labs
+GET  /api/labs/{lab_id}
+GET  /api/labs/{lab_id}/changes/today
+GET  /api/labs/{lab_id}/changes/week
+GET  /api/labs/{lab_id}/changes/month
+GET  /api/labs/{lab_id}/watch-items
+GET  /api/translations/{change_id}?locale=zh|en|ja
+~~~
 
-### 公共数据
+完整接口以 FastAPI Swagger 为准：/docs。
 
-```text
-GET /api/changes/today
-GET /api/changes/month
-GET /api/changes/{change_id}
-GET /api/documents/{document_id}
-GET /api/labs
-GET /api/labs/{lab_id}
-GET /api/labs/{lab_id}/changes/today
-GET /api/labs/{lab_id}/changes/month
-GET /api/labs/{lab_id}/watch-items
-GET /api/translations/{change_id}?locale=zh|en|ja
-```
+## 数据库迁移与种子数据
 
-### 管理和运行
-
-```text
-GET  /api/admin/sources
-GET  /api/admin/schedule
-PUT  /api/admin/schedule
-GET  /api/radar/runs
-POST /api/radar/run
-POST /api/ingest/run
-POST /api/analyze/run
-GET  /api/analyses/recent
-GET  /api/ai/status
-GET  /api/ai/dify/check
-```
-
-完整接口可以直接查看 FastAPI Swagger：`/docs`。
-
-## 数据库迁移和种子数据
-
-迁移目录：`services/api/migrations/versions/`
+迁移目录：services/api/migrations/versions/
 
 执行迁移：
 
-```bash
+~~~bash
 cd services/api
 alembic upgrade head
-```
+~~~
 
-初始化或补充种子数据：
+初始化基础运行配置：
 
-```bash
+~~~bash
 PYTHONPATH=. python -m app.db.seed
-```
+~~~
 
 核心表包括：
 
-- `labs`
-- `lab_profiles`
-- `sources`
-- `documents`
-- `analyses`
-- `entity_states`
-- `changes`
-- `lab_change_interpretations`
-- `watch_items`
-- `lab_watch_items`
-- `users`
-- `lab_memberships`
-- `radar_runs`
-- `radar_settings`
+~~~text
+labs                  lab_profiles
+sources               documents
+analyses              entity_states
+changes               lab_change_interpretations
+watch_items           lab_watch_items
+users                 lab_memberships
+lab_invitations       lab_audit_logs
+radar_runs            radar_settings
+~~~
 
-## 测试和质量检查
+## 测试与质量检查
 
-后端单元测试与 API 测试：
+后端测试：
 
-```bash
+~~~bash
 cd services/api
 .venv/bin/pytest -q
-```
+~~~
 
-前端类型检查和生产构建：
+前端类型检查：
 
-```bash
+~~~bash
 cd apps/web
 npm test
+~~~
+
+前端生产构建：
+
+~~~bash
 npm run build
-```
+~~~
 
-基础 Python 编译检查：
+Python 编译检查：
 
-```bash
+~~~bash
 python -m compileall services/api/app
-```
+~~~
+
+提交前建议额外运行：
+
+~~~bash
+git diff --check
+~~~
+
+持续集成配置位于 .github/workflows/ci.yml。
 
 ## 项目结构
 
-```text
+~~~text
 .
 ├── apps/web/                 # Next.js Web 应用
-│   └── app/                  # Dashboard、My Lab、详情、管理页面
+│   └── app/                  # Dashboard、My Lab、详情和管理页面
 ├── services/api/             # FastAPI 服务
 │   ├── app/api/              # HTTP API 路由
-│   ├── app/db/               # SQLAlchemy 模型和种子数据
+│   ├── app/db/               # SQLAlchemy 模型和 seed
 │   ├── app/services/         # 抓取、分析、AI、认证和雷达流程
 │   ├── migrations/           # Alembic 迁移
-│   └── tests/                # 后端测试
+│   └── tests/                # API 与服务测试
 ├── database/schema.sql       # 数据库结构参考
-├── docs/                     # 产品、架构、Dify 配置和任务文档
+├── docs/                     # 产品、架构、Dify 和任务文档
 ├── docker-compose.yml        # PostgreSQL、Redis、MinIO、API、Web
-└── .env.example              # 环境变量模板
-```
+├── .env.example              # 环境变量模板
+├── LICENSE                   # MIT License
+└── SECURITY.md               # 安全问题报告说明
+~~~
 
-## AWS 部署建议
+## 生产部署建议
 
-当前 Docker Compose 适合本地开发和早期验证。部署到 AWS 时建议拆分为：
+Docker Compose 适合本地开发和早期验证。部署到 AWS 等云环境时，可以拆分为：
 
-- Web：ECS Fargate 或 AWS App Runner
+- Web：ECS Fargate 或 App Runner
 - API：ECS Fargate
 - PostgreSQL：Amazon RDS for PostgreSQL
-- Redis：Amazon ElastiCache for Redis
+- Redis：ElastiCache for Redis
 - 对象存储：Amazon S3
-- 定时任务：EventBridge Scheduler + ECS Task，或 EventBridge + SQS Worker
+- 定时任务：EventBridge Scheduler、ECS Task 或 SQS Worker
 - 密钥：AWS Secrets Manager 或 Systems Manager Parameter Store
-- 域名和 HTTPS：Application Load Balancer + ACM + Route 53
+- HTTPS：Application Load Balancer、ACM 和 Route 53
 - 日志：CloudWatch Logs
 
-生产环境至少需要：
+生产部署至少应做到：
 
-1. 使用 RDS，不使用容器内数据库。
-2. 使用 Secrets Manager 管理 OAuth、Dify、OpenAI 和数据库密钥。
-3. 配置 HTTPS，并更新 Google OAuth 回调地址。
-4. 将抓取、AI 分析和页面 API 拆成可独立扩缩容的任务。
-5. 设置抓取超时、重试、速率限制和失败告警。
-6. 将数据库迁移作为发布流程的一部分执行。
-7. 为来源、文档、分析和变化建立日志与运行记录。
-8. 不把 `.env`、`local.env`、数据库文件和云平台密钥提交到 Git。
+1. 使用托管 PostgreSQL，不把数据库作为长期运行的应用容器。
+2. 使用密钥管理服务保存 OAuth、AI Provider 和数据库凭据。
+3. 使用 HTTPS，并配置 Secure Cookie 和正确的 OAuth 回调地址。
+4. 关闭 demo seed，不把真实 Lab 私有资料写入公共仓库。
+5. 为抓取、AI 分析和失败任务配置超时、重试、限流和告警。
+6. 将数据库迁移纳入发布流程，并设置备份和恢复演练。
+7. 在正式暴露公网前完成权限、CSRF、密钥和依赖安全审查。
+
+## 开源与安全
+
+项目使用 MIT License。提交代码前请确认没有包含：
+
+- API Key、OAuth Client Secret 或数据库密码
+- .env、local.env、数据库文件和云平台凭据
+- 下载的私有资料或未获授权的全文内容
+- 真实用户信息和私有 Lab Profile
+
+安全问题请按照 SECURITY.md 的说明私下报告，不要在公开 Issue 中发布凭据或可利用细节。隐私和数据处理说明见 PRIVACY.md。
 
 ## 当前边界
 
 当前版本暂不包含：
 
-- 用户上传资料
-- OCR 和 PDF 管理流程
+- 用户上传资料、OCR 和 PDF 管理
 - 多租户计费
 - 完整的后台来源编辑器
 - 专利数据的稳定多源 API 兜底
-- AI 分析任务队列和并发调度
-- 生产级审计日志和细粒度组织权限
+- 生产级任务队列和并发调度
+- 完整的组织级权限、审计和合规流程
 
-这些能力可以在数据源稳定、Lab 使用流程验证后继续建设。
+这些能力可以在数据源稳定、Lab 工作流验证和生产安全加固后继续建设。

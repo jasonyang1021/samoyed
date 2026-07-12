@@ -149,6 +149,12 @@ function apiBaseUrl() {
   return process.env.API_INTERNAL_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 }
 
+// Dynamic route params may already contain percent-encoded UTF-8 characters.
+// Normalize first so every Lab ID is encoded exactly once for API requests.
+function labPathSegment(labId: string) {
+  return encodeURIComponent(decodeURIComponent(labId));
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store" });
 
@@ -192,15 +198,15 @@ export function getLabs() {
 }
 
 export function getLabTodayChanges(labId: string) {
-  return fetchJson<LabChangeCard[]>(`/api/labs/${labId}/changes/today`);
+  return fetchJson<LabChangeCard[]>(`/api/labs/${labPathSegment(labId)}/changes/today`);
 }
 
 export function getLabWeekChanges(labId: string) {
-  return fetchJson<LabChangeCard[]>(`/api/labs/${labId}/changes/week`);
+  return fetchJson<LabChangeCard[]>(`/api/labs/${labPathSegment(labId)}/changes/week`);
 }
 
 export function getLabMonthChanges(labId: string) {
-  return fetchJson<LabChangeCard[]>(`/api/labs/${labId}/changes/month`);
+  return fetchJson<LabChangeCard[]>(`/api/labs/${labPathSegment(labId)}/changes/month`);
 }
 
 export function getWatchItems() {
@@ -208,17 +214,17 @@ export function getWatchItems() {
 }
 
 export function getLabWatchItems(labId: string) {
-  return fetchJson<WatchItem[]>(`/api/labs/${labId}/watch-items`);
+  return fetchJson<WatchItem[]>(`/api/labs/${labPathSegment(labId)}/watch-items`);
 }
 
 export async function addLabWatchItem(labId: string, payload: Pick<WatchItem, "kind" | "name" | "description">) {
-  const response = await fetch(`${apiBaseUrl()}/api/labs/${labId}/watch-items`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(payload) });
+  const response = await fetch(`${apiBaseUrl()}/api/labs/${labPathSegment(labId)}/watch-items`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(payload) });
   if (!response.ok) throw new Error("API request failed");
   return response.json() as Promise<WatchItem>;
 }
 
 export async function removeLabWatchItem(labId: string, watchItemId: string) {
-  const response = await fetch(`${apiBaseUrl()}/api/labs/${labId}/watch-items/${encodeURIComponent(watchItemId)}`, { method: "DELETE", credentials: "include" });
+  const response = await fetch(`${apiBaseUrl()}/api/labs/${labPathSegment(labId)}/watch-items/${encodeURIComponent(watchItemId)}`, { method: "DELETE", credentials: "include" });
   if (!response.ok) throw new Error("API request failed");
 }
 

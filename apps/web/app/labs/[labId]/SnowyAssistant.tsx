@@ -119,7 +119,7 @@ export default function SnowyAssistant({ labId, labName }: { labId: string; labN
     if (normalizedQuestion) setMessages((current) => [...current, { role: "user", content: normalizedQuestion }]);
     setLoading(true);
     try {
-      const response = await fetch(`${apiBase}/api/labs/${labId}/assistant`, {
+      const response = await fetch(`${apiBase}/api/labs/${encodeURIComponent(decodeURIComponent(labId))}/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: normalizedQuestion, context: context.slice(0, 15000), history, locale: language }),

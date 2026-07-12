@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { getChange, getDocument, getLabTodayChanges, type DocumentRecord } from "../../lib/api";
+import { getChange, getDocument, type DocumentRecord } from "../../lib/api";
 import ArticleLanguagePanel from "../../ArticleLanguagePanel";
-import { getCurrentUser } from "../../lib/serverApi";
+import { getCurrentUser, getLabTodayChanges } from "../../lib/serverApi";
 import { redirect } from "next/navigation";
 import SnowyAssistant from "../../labs/[labId]/SnowyAssistant";
 import SnowyArticleButton from "../../SnowyArticleButton";
