@@ -1,0 +1,20 @@
+[
+  {
+    "id": "relevant-with-evidence",
+    "lab_profile": {"research_scope": {"topics": ["topic-a"]}, "signal_rules": {"keywords": ["topic-a"]}},
+    "document": {"title": "Topic A validation result", "content": "The team reports a measured improvement in Topic A under the stated test condition."},
+    "expected": {"is_relevant": true, "requires_evidence_citation": true}
+  },
+  {
+    "id": "unrelated-without-evidence",
+    "lab_profile": {"research_scope": {"topics": ["topic-a"]}, "signal_rules": {"keywords": ["topic-a"]}},
+    "document": {"title": "Unrelated administrative update", "content": "The company updated its office contact page."},
+    "expected": {"is_relevant": false, "requires_evidence_citation": false}
+  },
+  {
+    "id": "uncertain-source",
+    "lab_profile": {"research_scope": {"questions": ["question-a"]}, "signal_rules": {"keywords": ["topic-a"]}},
+    "document": {"title": "Topic A rumor", "content": "An unnamed source may have seen a possible Topic A prototype; no measurement is provided."},
+    "expected": {"requires_uncertainty": true, "requires_evidence_citation": true}
+  }
+]

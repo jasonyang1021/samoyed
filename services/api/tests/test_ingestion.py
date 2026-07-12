@@ -1,9 +1,11 @@
+from datetime import timedelta
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.database import Base
-from app.db.models import Change, Document, Source, WatchItem
+from app.db.models import Change, Document, Source, WatchItem, utc_now
 from app.services.analyzer import analyze_pending_documents
 from app.services.ingestion import ingest_source, parse_payload
 
@@ -26,11 +28,12 @@ def test_parse_arxiv_atom_feed() -> None:
 
 
 def test_parse_public_html_page() -> None:
-    payload = b'<html><head><title>Glass substrate news</title><meta name="author" content="Intel"></head><body><h1>Glass substrate news</h1><p>Intel announced a glass substrate for advanced packaging.</p></body></html>'
+    payload = b'<html><head><title>Glass substrate news</title><link rel="canonical" href="https://publisher.test/glass"/><meta name="author" content="Intel"></head><body><h1>Glass substrate news</h1><p>Intel announced a glass substrate for advanced packaging.</p></body></html>'
 
     documents = parse_payload(payload, "text/html", "html", "https://example.test/news")
 
     assert documents[0]["title"] == "Glass substrate news"
+    assert documents[0]["url"] == "https://publisher.test/glass"
     assert documents[0]["authors"] == ["Intel"]
     assert documents[0]["content_level"] == "full_text"
     assert "advanced packaging" in documents[0]["content"]
@@ -64,6 +67,28 @@ def test_ingestion_deduplicates_by_url_and_fingerprint() -> None:
     assert second["duplicates"] == 1
 
 
+def test_ingestion_fetches_second_page_for_catalog_source() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    first_page = b'''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><title>HBM paper one</title><id>https://arxiv.org/abs/1234.0001</id><summary>First result.</summary><published>2026-07-11T00:00:00Z</published></entry></feed>'''
+    second_page = b'''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><title>HBM paper two</title><id>https://arxiv.org/abs/1234.0002</id><summary>Second result.</summary><published>2026-07-10T00:00:00Z</published></entry></feed>'''
+    requested_urls: list[str] = []
+
+    def fetcher(url: str):
+        requested_urls.append(url)
+        return (second_page if "start=50" in url else first_page, "application/atom+xml")
+
+    with Session(engine) as db:
+        source = Source(id="src-paged", source_type="paper_feed", title="Paged paper feed", url="https://example.test/feed?start=0&max_results=50", raw_metadata={"format": "arxiv", "max_pages": 2, "page_size": 50})
+        db.add(source)
+        db.commit()
+        result = ingest_source(db, source, fetcher)
+
+    assert result["fetched"] == 2
+    assert result["created"] == 2
+    assert any("start=50" in url for url in requested_urls)
+
+
 def test_rule_analysis_generates_relevant_change(monkeypatch) -> None:
     from app.core.config import settings
 
@@ -77,7 +102,7 @@ def test_rule_analysis_generates_relevant_change(monkeypatch) -> None:
         item = WatchItem(id="topic-glass-core", kind="topic", name="Glass Core", is_following=True)
         db.add_all([source, item])
         db.flush()
-        db.add(Document(id="doc-test-analysis", source_id=source.id, canonical_url="https://example.test/doc", title="Glass Core TGV reliability", content_text="New Glass Core TGV reliability results show a stronger engineering signal.", content_fingerprint="fingerprint-test-analysis", raw_metadata={}))
+        db.add(Document(id="doc-test-analysis", source_id=source.id, canonical_url="https://example.test/doc", title="Glass Core TGV reliability", content_text="New Glass Core TGV reliability results show a stronger engineering signal.", content_fingerprint="fingerprint-test-analysis", published_at=utc_now() - timedelta(days=1), raw_metadata={}))
         db.commit()
 
         analyses, generated = analyze_pending_documents(db)

@@ -13,6 +13,13 @@ def test_health_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_api_health_alias_returns_ok() -> None:
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_readiness_reports_dependency_status(monkeypatch) -> None:
     from app.api import routes
 

@@ -7,20 +7,21 @@ import type { ChangeCard } from "./lib/api";
 type Category = "company" | "university" | "patent" | "conference" | "technology";
 
 const categoryMeta: Array<{ id: Category; label: string; note: string }> = [
-  { id: "company", label: "新增企业新闻", note: "企业路线与量产" },
+  { id: "company", label: "新增企业动态", note: "企业路线与量产" },
   { id: "university", label: "新增高校论文", note: "论文与研究" },
   { id: "patent", label: "新增专利", note: "专利与技术布局" },
   { id: "conference", label: "新增学术顶会", note: "会议与议程" },
-  { id: "technology", label: "其他技术信息", note: "技术状态迁移" },
+  { id: "technology", label: "其他技术新闻", note: "技术状态迁移" },
 ];
 
 function categoriesFor(change: ChangeCard): Array<Exclude<Category, "all">> {
   const categories: Array<Exclude<Category, "all">> = [];
   const items = change.watch_items.join(" ");
-  if (/Intel|Samsung|Absolics|TSMC/.test(items)) categories.push("company");
-  if (/东京大学|MIT/.test(items)) categories.push("university");
-  if (/专利|patent/i.test(change.title)) categories.push("patent");
-  if (/ECTC|IEDM/.test(items)) categories.push("conference");
+  const sourceText = change.evidence.map((item) => item.source_title).join(" ");
+  if (/Intel|Samsung|Absolics|TSMC|Micron|NVIDIA|Corning/.test(items)) categories.push("company");
+  if (/东京大学|MIT|东北大学/.test(items) || /arXiv|OpenAlex|Crossref|Semantic Scholar|Europe PMC|paper|论文/i.test(sourceText)) categories.push("university");
+  if (/专利|patent/i.test(`${change.title} ${sourceText}`)) categories.push("patent");
+  if (/ECTC|IEDM|ISSCC|DAC|conference|proceedings|会议/i.test(`${items} ${sourceText}`)) categories.push("conference");
   categories.push("technology");
   return categories;
 }
@@ -66,10 +67,10 @@ export default function DashboardFeed({ changes, weeklyChanges }: { changes: Cha
   }
 
   return <>
-    <div className="sectionHeading dashboardHeading"><div><span className="sectionLabel">TODAY / {changes.length} UPDATES</span><h1 className="dashboardTitle">今日热点</h1></div><span className="refreshState"><span className="statusDot" /> UPDATED JUST NOW</span></div>
+    <div className="sectionHeading dashboardHeading"><div><span className="sectionLabel">THIS WEEK / {changes.length} UPDATES</span><h1 className="dashboardTitle">本周热点</h1></div><span className="refreshState"><span className="statusDot" /> UPDATED JUST NOW</span></div>
     <section className="categoryGrid">{categoryMeta.map((category) => <button className={`categoryCard ${active === category.id ? "active" : ""}`} key={category.id} onClick={() => setActive(category.id)}><span className="categoryLabel">{category.label}</span><strong>{counts[category.id] ?? 0}</strong><small>{category.note}</small></button>)}</section>
-    <div className="updatesHeader"><div><span className="sectionLabel">UPDATES / {categoryMeta.find((item) => item.id === active)?.label}</span><h2>今日新增</h2></div><span className="updateCount">{visibleChanges.length} 条</span></div>
-    <section className="feed">{visibleChanges.length === 0 ? <div className="emptyFeed">今天还没有这一类的新变化。</div> : visibleChanges.map((change) => renderChange(change, !authenticated))}</section>
+    <div className="updatesHeader"><div><span className="sectionLabel">UPDATES / {categoryMeta.find((item) => item.id === active)?.label}</span><h2>本周新增</h2></div><span className="updateCount">{visibleChanges.length} 条</span></div>
+    <section className="feed">{visibleChanges.length === 0 ? <div className="emptyFeed">本周还没有这一类的新变化。</div> : visibleChanges.map((change) => renderChange(change, !authenticated))}</section>
     <div className="updatesHeader weeklyHeader"><div><span className="sectionLabel">THIS MONTH / {categoryMeta.find((item) => item.id === active)?.label}</span><h2>本月新增</h2></div><span className="updateCount">{visibleWeeklyChanges.length} 条</span></div>
     <section className="feed weeklyFeed">{visibleWeeklyChanges.length === 0 ? <div className="emptyFeed">本月暂无更早的相关变化。</div> : visibleWeeklyChanges.map((change) => renderChange(change, !authenticated))}</section>
   </>;

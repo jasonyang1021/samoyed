@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { createInvitation, type LabInvitation } from "../lib/api";
+import { createInvitation, createLabInvitation, type LabInvitation } from "../lib/api";
 
 const roleLabels = { lab_admin: "Lab 管理员", lab_user: "Lab 用户" } as const;
 
-export default function InvitationPanel({ initialInvitations }: { initialInvitations: LabInvitation[] }) {
+export default function InvitationPanel({ initialInvitations, labId }: { initialInvitations: LabInvitation[]; labId?: string }) {
   const [invitations, setInvitations] = useState(initialInvitations);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<LabInvitation["role"]>("lab_user");
@@ -17,7 +17,7 @@ export default function InvitationPanel({ initialInvitations }: { initialInvitat
     if (!email.trim()) return;
     setSaving(true); setMessage("");
     try {
-      const item = await createInvitation({ email, lab_id: "lab-glass-core", role });
+      const item = labId ? await createLabInvitation({ email, lab_id: labId, role }) : await createInvitation({ email, lab_id: "lab-glass-core", role });
       setInvitations((current) => [item, ...current.filter((existing) => existing.id !== item.id)]);
       setEmail(""); setMessage("邀请已保存，用户下次登录后自动加入。");
     } catch { setMessage("邀请保存失败，请检查邮箱或 API 状态。"); }

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import timezone
+from datetime import timedelta
+from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models import Analysis, Change, Document, Lab, LabChangeInterpretation, LabWatchItem, WatchItem, utc_now
+from app.db.models import Analysis, Change, Document, Lab, LabChangeInterpretation, LabSource, LabWatchItem, WatchItem, utc_now
 from app.services.ai_gateway import AIUnavailableError, active_provider, call_ai_json
 
 
@@ -68,31 +69,42 @@ AI_ANALYSIS_SCHEMA = {
         "importance": {"type": "string", "enum": ["S", "A", "B", "C"]},
         "lab_why_relevant": {"type": "string"},
         "lab_impact": {"type": "string"},
+        "confidence": {"type": "number"},
+        "evidence_citations": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["relevance_score", "is_relevant", "category", "matched_entities", "extracted_facts", "summary", "previous_state", "current_state", "change_summary", "importance", "lab_why_relevant", "lab_impact"],
     "additionalProperties": False,
 }
 
 
-def _ai_analyze(document: Document, watched_names: list[str]) -> dict[str, object] | None:
+def _ai_analyze(document: Document, watched_names: list[str], profiles: list[dict], progress_callback: Callable[[str, int], None] | None = None) -> dict[str, object] | None:
     if active_provider() == "rule_based":
         return None
     prompt = f"""You are the senior analyst for AI Research Radar.
-Analyze this public research item for AI hardware research labs covering Glass Core, PCB, CPO, MLCC, HBM, advanced packaging, interconnect, reliability, and thermal/system integration. Do not invent facts. Treat the supplied text as the source of truth.
+Analyze this public research item against the Lab profiles below. Do not invent facts. Treat the supplied text as the source of truth. Use only the configured Lab scopes and signal rules; do not assume a particular industry.
 Followed entities: {', '.join(watched_names) or 'none'}
+Lab profiles: {profiles}
 Title: {document.title}
 Authors: {', '.join(document.authors or []) or 'not provided'}
 Source: {document.source.title}
 URL: {document.canonical_url}
 Content:
-{document.content_text[:12000]}
+{document.content_text[:settings.ai_max_input_chars]}
 
-Decide whether it is materially relevant to any followed AI hardware lab topic, including glass substrates, PCB materials, CPO/optical interconnect, MLCC/passives, HBM/memory packaging, advanced packaging, reliability, interconnects, cooling, or adjacent semiconductor packaging. Return concise Chinese text for the summary and all judgment fields. Keep extracted_facts to at most three items. Relevance score must be between 0 and 1."""
+Decide whether it is materially relevant to any configured Lab. Return concise Chinese text for the summary and all judgment fields. Keep extracted_facts and evidence_citations to at most three items. Each evidence_citations item must be a short verbatim quote or a precise location in the supplied source. Confidence and relevance_score must be between 0 and 1."""
     try:
+        if progress_callback:
+            progress_callback("dify_started", 0)
         result = call_ai_json(prompt, "research_radar_analysis", AI_ANALYSIS_SCHEMA)
+        if progress_callback:
+            progress_callback("dify_succeeded", 0)
         result["relevance_score"] = max(0.0, min(0.99, float(result["relevance_score"])))
+        result["confidence"] = max(0.0, min(0.99, float(result.get("confidence", result["relevance_score"]))))
+        result["evidence_citations"] = [str(item) for item in result.get("evidence_citations", [])][:3]
         return result
     except (AIUnavailableError, KeyError, TypeError, ValueError):
+        if progress_callback:
+            progress_callback("dify_failed", 0)
         return None
 
 
@@ -116,48 +128,42 @@ def _category(source_type: str, matched_entities: list[str], title: str) -> str:
     return "technology"
 
 
-LAB_SIGNAL_RULES = {
-    "lab-glass-core": ("glass", "tgv", "through glass via", "glass core", "substrate", "warpage"),
-    "lab-cpo": ("cpo", "co-packaged optics", "optical interconnect", "photonic", "emib-t"),
-    "lab-pcb": ("pcb", "printed circuit", "laminate", "signal integrity", "package substrate", "warpage"),
-    "lab-cc": ("cooling", "thermal", "compute", "hbm", "high bandwidth memory", "mlcc", "interconnect", "high bandwidth"),
-    "lab-fujii": ("reliability", "materials", "advanced packaging", "tgv", "semiconductor packaging"),
-}
-
-
 def _ensure_lab_interpretations(db: Session, change: Change, document: Document, matched_entities: list[str], score: float, ai_result: dict[str, object] | None) -> None:
     haystack = f"{document.title}\n{document.content_text}".casefold()
     linked_names = set(matched_entities)
     for lab in db.scalars(select(Lab).order_by(Lab.name.asc())).all():
+        selected_sources = {link.source_id for link in db.query(LabSource).filter(LabSource.lab_id == lab.id, LabSource.enabled.is_(True)).all()}
+        if selected_sources and document.source_id not in selected_sources:
+            continue
         lab_items = {link.watch_item.name for link in db.query(LabWatchItem).filter(LabWatchItem.lab_id == lab.id).all()}
-        signals = LAB_SIGNAL_RULES.get(lab.id, ())
+        profile = lab.profile
+        configured_rules = profile.signal_rules if profile and isinstance(profile.signal_rules, dict) else {}
+        signals = tuple(str(item).casefold() for item in configured_rules.get("keywords", []) if str(item).strip())
         matched_signals = [signal for signal in signals if signal in haystack]
         matched_watch_items = [name for name in lab_items if name.casefold() in haystack or name in linked_names]
         if not matched_signals and not matched_watch_items:
             continue
         relevance = min(0.99, max(0.45, score + len(matched_signals) * 0.04))
-        if lab.id == "lab-glass-core":
-            why = "命中了玻璃基板、TGV 或先进封装可靠性信号，与本 Lab 的核心研究范围直接相关。"
-            impact = "需要判断该信号是否代表玻璃基板从材料与样品验证继续走向工程化和量产。"
-        elif lab.id == "lab-cpo":
-            why = "内容涉及光电互连、CPO 或高速封装协同，关联本 Lab 对带宽和光电集成路径的关注。"
-            impact = "提示 CPO 的系统瓶颈正在从光学器件延伸到封装、接口和可制造性，需要关注量产验证。"
-        elif lab.id == "lab-pcb":
-            why = "内容涉及基板材料、翘曲、叠层或信号完整性，与 PCB Lab 的材料和高速设计关注相关。"
-            impact = "可能改变 PCB 材料选择、叠层设计或高频互连的工程约束，需比较其对现有工艺的替代程度。"
-        elif lab.id == "lab-cc":
-            why = "内容触及计算、带宽、互连或热管理，与 CC Lab 的系统级算力和连接效率判断相关。"
-            impact = "需要评估该技术是否能转化为系统级带宽、功耗或散热收益，而不只是器件指标提升。"
-        else:
-            why = "内容涉及材料、可靠性或先进封装验证，与 Fujii Lab 的学术研究和工艺转化关注相关。"
-            impact = "可作为后续实验设计和材料路线比较的参考，重点观察是否出现可复现实验和跨机构验证。"
+        scope = profile.research_scope if profile and isinstance(profile.research_scope, dict) else {}
+        scope_terms = [str(item) for value in scope.values() if isinstance(value, list) for item in value]
+        scope_label = "、".join(scope_terms[:3]) or "该 Lab 的研究范围"
+        why = f"内容命中了 {', '.join(matched_signals[:3]) or '关注项'}，与 {scope_label} 的配置化研究范围相关。"
+        impact = "需要结合来源证据和 Lab 的关键问题，判断该信号是否足以改变当前研究判断。"
+        if ai_result:
+            why = str(ai_result.get("lab_why_relevant") or why)
+            impact = str(ai_result.get("lab_impact") or impact)
         interpretation_id = f"interp-{lab.id}-{change.id}"
         interpretation = db.query(LabChangeInterpretation).filter(LabChangeInterpretation.lab_id == lab.id, LabChangeInterpretation.change_id == change.id).first()
         if interpretation is None:
             db.add(LabChangeInterpretation(id=interpretation_id, lab_id=lab.id, change_id=change.id, relevance_score=relevance, why_relevant=why, impact=impact, next_watch_points=["确认是否形成连续证据", "比较不同来源的实验或工程条件"], generation_method="ai" if ai_result else "rule_based"))
+        elif ai_result and interpretation.generation_method != "ai":
+            interpretation.relevance_score = relevance
+            interpretation.why_relevant = why
+            interpretation.impact = impact
+            interpretation.generation_method = "ai"
 
 
-def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change | None]:
+def _analyze_document(db: Session, document: Document, progress_callback: Callable[[str, int], None] | None = None) -> tuple[Analysis, Change | None]:
     existing = db.scalar(select(Analysis).where(Analysis.document_id == document.id))
     if existing:
         generated_id = (existing.raw_result or {}).get("generated_change_id")
@@ -165,6 +171,7 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
 
     followed_items = db.scalars(select(WatchItem).where(WatchItem.is_following.is_(True))).all()
     followed_names = [item.name for item in followed_items]
+    profiles = [{"lab": lab.name, "scope": lab.profile.research_scope if lab.profile else {}, "rules": lab.profile.signal_rules if lab.profile else {}} for lab in db.scalars(select(Lab).order_by(Lab.name.asc())).all()]
     haystack = f"{document.title}\n{document.content_text}".casefold()
     matched_entities = [item.name for item in followed_items if item.name.casefold() in haystack]
     matched_keywords = [keyword for keyword in KEYWORDS if keyword in haystack]
@@ -175,7 +182,7 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
     category = _category(document.source.source_type, matched_entities, document.title)
     # Only send plausible radar candidates to the model. Broad scholarly feeds
     # often contain acronym collisions that should be rejected cheaply first.
-    ai_result = _ai_analyze(document, followed_names) if (is_relevant or matched_keywords) else None
+    ai_result = _ai_analyze(document, followed_names, profiles, progress_callback) if (is_relevant or matched_keywords) else None
     if ai_result:
         matched_entities = [str(item) for item in ai_result["matched_entities"]]
         score = float(ai_result["relevance_score"])
@@ -183,8 +190,13 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
         category = str(ai_result["category"])
         summary = str(ai_result["summary"])
         extracted_facts = [str(item) for item in ai_result["extracted_facts"]]
+        confidence = float(ai_result.get("confidence", score))
+        evidence_citations = [str(item) for item in ai_result.get("evidence_citations", [])]
     else:
         extracted_facts = [summary] if is_relevant else []
+        confidence = round(min(0.8, score), 2)
+        evidence_citations = [summary] if is_relevant else []
+    provider = active_provider() if ai_result else "rule_based"
     analysis = Analysis(
         id=f"analysis-{hashlib.sha256(document.id.encode('utf-8')).hexdigest()[:24]}",
         document_id=document.id,
@@ -194,8 +206,11 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
         matched_entities=matched_entities,
         extracted_facts=extracted_facts,
         summary=summary,
+        confidence=round(confidence, 2),
+        evidence_citations=evidence_citations,
+        provider=provider,
         status="completed",
-        raw_result={"matched_keywords": matched_keywords, "ai_provider": active_provider() if ai_result else "rule_based"},
+        raw_result={"matched_keywords": matched_keywords, "ai_provider": provider},
     )
     db.add(analysis)
     change = None
@@ -213,7 +228,7 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
                 current_state=str(ai_result.get("current_state", summary)) if ai_result else summary,
                 change_summary=str(ai_result.get("change_summary", summary)) if ai_result else summary,
                 importance=str(ai_result.get("importance", importance)) if ai_result else importance,
-                evidence=[{"source_id": document.source_id, "source_title": document.source.title, "evidence_text": summary, "url": document.canonical_url, "document_id": document.id, "ai_provider": active_provider() if ai_result else "rule_based"}],
+                evidence=[{"source_id": document.source_id, "source_title": document.source.title, "evidence_text": summary, "citations": evidence_citations, "url": document.canonical_url, "document_id": document.id, "ai_provider": provider, "confidence": confidence}],
                 next_watch_points=["确认是否出现更多独立来源", "观察后续工程验证或引用情况"],
                 watch_item_ids=matched_ids,
                 status="detected",
@@ -225,19 +240,24 @@ def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change
     return analysis, change
 
 
-def analyze_pending_documents(db: Session, document_id: str | None = None) -> tuple[list[Analysis], int]:
+def analyze_pending_documents(db: Session, document_id: str | None = None, progress_callback: Callable[[str, int], None] | None = None) -> tuple[list[Analysis], int]:
     query = select(Document).order_by(Document.fetched_at.asc())
     if document_id:
         query = query.where(Document.id == document_id)
     else:
-        query = query.where(~Document.id.in_(select(Analysis.document_id)))
+        cutoff = utc_now() - timedelta(days=settings.source_lookback_days)
+        query = query.where(~Document.id.in_(select(Analysis.document_id)), Document.published_at.is_not(None), Document.published_at >= cutoff).limit(settings.radar_max_documents_per_run)
     documents = db.scalars(query).all()
+    if progress_callback:
+        progress_callback("analysis_started", len(documents))
     analyses = []
     generated_changes = 0
-    for document in documents:
-        analysis, change = _analyze_document(db, document)
+    for index, document in enumerate(documents, start=1):
+        analysis, change = _analyze_document(db, document, progress_callback)
         analyses.append(analysis)
         if change:
             generated_changes += 1
+        if progress_callback:
+            progress_callback("document_completed", index)
     db.commit()
     return analyses, generated_changes

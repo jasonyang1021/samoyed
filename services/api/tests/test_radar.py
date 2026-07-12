@@ -42,27 +42,13 @@ def test_ai_status_reports_configuration_without_exposing_key(monkeypatch) -> No
 
 
 def test_radar_run_endpoint_returns_pipeline_summary(monkeypatch) -> None:
-    now = datetime.now(timezone.utc)
-    fake_run = RadarRun(
-        id="run-test",
-        started_at=now,
-        finished_at=now,
-        status="completed",
-        source_count=6,
-        documents_fetched=10,
-        documents_created=2,
-        analyzed=2,
-        relevant=1,
-        generated_changes=1,
-        errors=[],
-    )
-    monkeypatch.setattr(routes, "run_radar", lambda db: fake_run)
+    monkeypatch.setattr(routes, "_run_radar_background", lambda run_id: None)
 
     response = client.post("/api/radar/run")
 
     assert response.status_code == 200
-    assert response.json()["id"] == "run-test"
-    assert response.json()["generated_changes"] == 1
+    assert response.json()["status"] == "running"
+    assert response.json()["phase"] == "starting"
 
 
 def test_dify_provider_returns_structured_workflow_output(monkeypatch) -> None:
@@ -85,6 +71,7 @@ def test_dify_provider_returns_structured_workflow_output(monkeypatch) -> None:
 
     def fake_urlopen(request, timeout):
         captured["url"] = request.full_url
+        captured["timeout"] = timeout
         if request.data:
             captured["body"] = json.loads(request.data.decode())
         return FakeResponse()
@@ -98,6 +85,7 @@ def test_dify_provider_returns_structured_workflow_output(monkeypatch) -> None:
 
     assert result == {"is_relevant": True}
     assert captured["url"] == "https://dify.test/v1/workflows/run"
+    assert captured["timeout"] == settings.dify_request_timeout_seconds
     assert captured["body"]["user"] == "research-radar"
     assert captured["body"]["inputs"]["schema_name"] == "test_schema"
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.models import Document, LabWatchItem, Source, WatchItem, utc_now
 from app.services.ai_gateway import AIUnavailableError, active_provider, call_ai_json
-from app.services.ingestion import clean_markup
+from app.services.ingestion import clean_markup, is_recent
 
 
 SEARCH_SCHEMA = {
@@ -38,13 +38,30 @@ SEARCH_SCHEMA = {
 }
 
 
+def _search_terms(items: list[WatchItem]) -> str:
+    related_terms = []
+    for item in items:
+        name = item.name.casefold()
+        if "hbm" in name or "memory" in name:
+            related_terms.extend(["HBM3E", "HBM4", "high bandwidth memory", "memory packaging", "TSV", "2.5D packaging"])
+        if "glass" in name or "tgv" in name:
+            related_terms.extend(["glass substrate", "glass core", "through glass via", "TGV", "glass interposer"])
+        if "packag" in name or "chiplet" in name:
+            related_terms.extend(["advanced packaging", "chiplet", "2.5D", "3D integration", "interposer"])
+    return ", ".join(dict.fromkeys([*related_terms, *[item.name for item in items]]))
+
+
 def _watch_query(items: list[WatchItem]) -> str:
     names = ", ".join(item.name for item in items)
+    terms = _search_terms(items)
     return (
-        "Search recent public information about glass substrates, glass core, TGV and advanced packaging. "
-        "Find company news, research papers, patents and conference information from official or reputable sources. "
-        f"Also prioritize these Lab-configured watch items: {names}. "
-        "Return high-quality results with real public URLs only."
+        f"Search public information published within the last {settings.source_lookback_days} days only. "
+        f"Search these topics and related terms: {terms}. "
+        f"Prioritize the Lab-configured watch items: {names}. "
+        "Return up to 30 high-quality results across four lanes: research papers and preprints, patents, conference proceedings, and official company or laboratory updates. "
+        "For papers prefer arXiv, OpenAlex, Crossref, Semantic Scholar, publishers, and universities. "
+        "For patents prefer USPTO, PatentsView, WIPO, EPO, J-PlatPat, CNIPA, or an exact Google Patents record. "
+        "Every result must include a real public URL, an exact publication date within the time window, a concise factual summary, and a precise source_type such as paper, patent, conference, or company."
     )
 
 
@@ -52,7 +69,8 @@ def _parse_date(value: Any):
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     except ValueError:
         return None
 
@@ -63,12 +81,13 @@ def search_and_store(db: Session) -> dict[str, object]:
     items = db.scalars(select(WatchItem).where(WatchItem.is_following.is_(True)).order_by(WatchItem.name.asc())).all()
     if not items:
         return {"fetched": 0, "created": 0, "status": "skipped", "error": "no followed items"}
+    terms = _search_terms(items)
     try:
         result = call_ai_json(_watch_query(items), "research_radar_search", SEARCH_SCHEMA, web_search=True)
         if not result.get("results"):
             result = call_ai_json(
-                "Search the web now for glass substrate, glass core, TGV and advanced packaging. "
-                "You must return at least 3 results when public sources exist. Include the exact title, real URL and a short summary for each result. "
+                f"Search the web now for recent papers, patents, conference proceedings, and company updates from the last {settings.source_lookback_days} days about {terms}. "
+                "You must return at least 3 results when public sources exist. Include the exact title, real URL, source_type, publication date and a short factual summary for each result. "
                 "Return only the required JSON object.",
                 "research_radar_search",
                 SEARCH_SCHEMA,
@@ -89,7 +108,7 @@ def search_and_store(db: Session) -> dict[str, object]:
             continue
         url = str(item["url"])
         published_at = _parse_date(item.get("published_at"))
-        if not published_at or published_at.year != utc_now().year:
+        if not is_recent(published_at):
             continue
         if db.scalar(select(Document).where(Document.canonical_url == url)):
             continue

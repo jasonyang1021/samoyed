@@ -24,7 +24,9 @@ class Lab(Base):
     profile: Mapped["LabProfile"] = relationship(back_populates="lab", uselist=False)
     interpretations: Mapped[list["LabChangeInterpretation"]] = relationship(back_populates="lab")
     memberships: Mapped[list["LabMembership"]] = relationship(back_populates="lab")
+    invitations: Mapped[list["LabInvitation"]] = relationship(back_populates="lab")
     watch_items: Mapped[list["LabWatchItem"]] = relationship(back_populates="lab", cascade="all, delete-orphan")
+    source_links: Mapped[list["LabSource"]] = relationship(back_populates="lab", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -64,8 +66,23 @@ class LabInvitation(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
-    lab: Mapped[Lab] = relationship()
+    lab: Mapped[Lab] = relationship(back_populates="invitations")
     inviter: Mapped[Optional[User]] = relationship(foreign_keys=[invited_by])
+
+
+class LabAuditLog(Base):
+    __tablename__ = "lab_audit_logs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    lab_id: Mapped[str] = mapped_column(String(64), ForeignKey("labs.id", ondelete="CASCADE"), nullable=False)
+    actor_user_id: Mapped[Optional[str]] = mapped_column(String(128), ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target: Mapped[Optional[str]] = mapped_column(Text)
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    lab: Mapped[Lab] = relationship()
+    actor: Mapped[Optional[User]] = relationship(foreign_keys=[actor_user_id])
 
 
 class LabWatchItem(Base):
@@ -86,6 +103,8 @@ class LabProfile(Base):
     research_scope: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     watchlist: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     key_questions: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    signal_rules: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    ai_policy: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     update_frequency: Mapped[str] = mapped_column(String(32), default="daily", nullable=False)
 
     lab: Mapped[Lab] = relationship(back_populates="profile")
@@ -100,9 +119,25 @@ class Source(Base):
     url: Mapped[Optional[str]] = mapped_column(Text)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     raw_metadata: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    last_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="source")
+    lab_links: Mapped[list["LabSource"]] = relationship(back_populates="source", cascade="all, delete-orphan")
+
+
+class LabSource(Base):
+    __tablename__ = "lab_sources"
+
+    lab_id: Mapped[str] = mapped_column(String(64), ForeignKey("labs.id", ondelete="CASCADE"), primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(64), ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    lab: Mapped[Lab] = relationship(back_populates="source_links")
+    source: Mapped[Source] = relationship(back_populates="lab_links")
 
 
 class Document(Base):
@@ -136,6 +171,9 @@ class Analysis(Base):
     matched_entities: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     extracted_facts: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[Optional[float]] = mapped_column(Numeric(5, 2))
+    evidence_citations: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), default="rule_based", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="completed", nullable=False)
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     raw_result: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
@@ -156,6 +194,14 @@ class RadarRun(Base):
     analyzed: Mapped[int] = mapped_column(default=0, nullable=False)
     relevant: Mapped[int] = mapped_column(default=0, nullable=False)
     generated_changes: Mapped[int] = mapped_column(default=0, nullable=False)
+    analysis_total: Mapped[int] = mapped_column(default=0, nullable=False)
+    dify_requests_total: Mapped[int] = mapped_column(default=0, nullable=False)
+    dify_requests_succeeded: Mapped[int] = mapped_column(default=0, nullable=False)
+    dify_requests_failed: Mapped[int] = mapped_column(default=0, nullable=False)
+    processed_sources: Mapped[int] = mapped_column(default=0, nullable=False)
+    total_sources: Mapped[int] = mapped_column(default=0, nullable=False)
+    current_source: Mapped[Optional[str]] = mapped_column(Text)
+    phase: Mapped[str] = mapped_column(String(32), default="starting", nullable=False)
     errors: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
 
