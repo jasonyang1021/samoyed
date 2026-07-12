@@ -151,10 +151,18 @@ def _ensure_lab_interpretations(db: Session, change: Change, document: Document,
         else:
             why = "内容涉及材料、可靠性或先进封装验证，与 Fujii Lab 的学术研究和工艺转化关注相关。"
             impact = "可作为后续实验设计和材料路线比较的参考，重点观察是否出现可复现实验和跨机构验证。"
+        if ai_result:
+            why = str(ai_result.get("lab_why_relevant") or why)
+            impact = str(ai_result.get("lab_impact") or impact)
         interpretation_id = f"interp-{lab.id}-{change.id}"
         interpretation = db.query(LabChangeInterpretation).filter(LabChangeInterpretation.lab_id == lab.id, LabChangeInterpretation.change_id == change.id).first()
         if interpretation is None:
             db.add(LabChangeInterpretation(id=interpretation_id, lab_id=lab.id, change_id=change.id, relevance_score=relevance, why_relevant=why, impact=impact, next_watch_points=["确认是否形成连续证据", "比较不同来源的实验或工程条件"], generation_method="ai" if ai_result else "rule_based"))
+        elif ai_result and interpretation.generation_method != "ai":
+            interpretation.relevance_score = relevance
+            interpretation.why_relevant = why
+            interpretation.impact = impact
+            interpretation.generation_method = "ai"
 
 
 def _analyze_document(db: Session, document: Document) -> tuple[Analysis, Change | None]:

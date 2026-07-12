@@ -24,6 +24,7 @@ class Lab(Base):
     profile: Mapped["LabProfile"] = relationship(back_populates="lab", uselist=False)
     interpretations: Mapped[list["LabChangeInterpretation"]] = relationship(back_populates="lab")
     memberships: Mapped[list["LabMembership"]] = relationship(back_populates="lab")
+    invitations: Mapped[list["LabInvitation"]] = relationship(back_populates="lab")
     watch_items: Mapped[list["LabWatchItem"]] = relationship(back_populates="lab", cascade="all, delete-orphan")
 
 
@@ -64,8 +65,23 @@ class LabInvitation(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
-    lab: Mapped[Lab] = relationship()
+    lab: Mapped[Lab] = relationship(back_populates="invitations")
     inviter: Mapped[Optional[User]] = relationship(foreign_keys=[invited_by])
+
+
+class LabAuditLog(Base):
+    __tablename__ = "lab_audit_logs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    lab_id: Mapped[str] = mapped_column(String(64), ForeignKey("labs.id", ondelete="CASCADE"), nullable=False)
+    actor_user_id: Mapped[Optional[str]] = mapped_column(String(128), ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target: Mapped[Optional[str]] = mapped_column(Text)
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    lab: Mapped[Lab] = relationship()
+    actor: Mapped[Optional[User]] = relationship(foreign_keys=[actor_user_id])
 
 
 class LabWatchItem(Base):
@@ -100,6 +116,9 @@ class Source(Base):
     url: Mapped[Optional[str]] = mapped_column(Text)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     raw_metadata: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    last_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="source")

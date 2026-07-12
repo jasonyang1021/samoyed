@@ -26,11 +26,12 @@ def test_parse_arxiv_atom_feed() -> None:
 
 
 def test_parse_public_html_page() -> None:
-    payload = b'<html><head><title>Glass substrate news</title><meta name="author" content="Intel"></head><body><h1>Glass substrate news</h1><p>Intel announced a glass substrate for advanced packaging.</p></body></html>'
+    payload = b'<html><head><title>Glass substrate news</title><link rel="canonical" href="https://publisher.test/glass"/><meta name="author" content="Intel"></head><body><h1>Glass substrate news</h1><p>Intel announced a glass substrate for advanced packaging.</p></body></html>'
 
     documents = parse_payload(payload, "text/html", "html", "https://example.test/news")
 
     assert documents[0]["title"] == "Glass substrate news"
+    assert documents[0]["url"] == "https://publisher.test/glass"
     assert documents[0]["authors"] == ["Intel"]
     assert documents[0]["content_level"] == "full_text"
     assert "advanced packaging" in documents[0]["content"]

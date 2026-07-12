@@ -42,3 +42,6 @@ class SourceRead(BaseModel):
     latest_published_at: Optional[datetime]
     latest_fetched_at: Optional[datetime]
     status: str
+    enabled: bool
+    last_error: Optional[str]
+    last_checked_at: Optional[datetime]

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -10,12 +12,13 @@ import redis
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import case, create_engine, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import Change, Document, Lab, LabChangeInterpretation, LabInvitation, LabMembership, LabProfile, LabWatchItem, RadarRun, RadarSettings, Source, User, WatchItem
+from app.db.models import Analysis, Change, Document, Lab, LabAuditLog, LabChangeInterpretation, LabInvitation, LabMembership, LabProfile, LabWatchItem, RadarRun, RadarSettings, Source, User, WatchItem, utc_now
 from app.schemas.analysis import AnalysisRead, AnalysisRunResult
 from app.schemas.document import DocumentRead, IngestResult, SourceRead
 from app.schemas.change import ChangeCard, ChangeDetail, LabChangeCard
@@ -24,13 +27,54 @@ from app.schemas.radar import RadarRunRead
 from app.schemas.watch import WatchItemCreate, WatchItemRead
 from app.schemas.schedule import ScheduleRead, ScheduleUpdate
 from app.schemas.auth import AuthUserRead, LabInvitationCreate, LabInvitationRead, LabMembershipRead, LabMembershipUpdate
-from app.services.ingestion import ingest_source
+from app.schemas.audit import LabAuditLogRead
+from app.services.ingestion import fetch_url, ingest_source
 from app.services.analyzer import analyze_pending_documents
 from app.services.radar import run_radar
-from app.services.ai_gateway import AIUnavailableError, active_provider, call_ai_json, check_dify_connection
+from app.services.ai_gateway import AIUnavailableError, active_model, active_provider, call_ai_json, call_chat_agent, check_dify_connection, parse_json_object, salvage_json_object
+from app.services.web_search import search_public_web
 from app.services.auth import create_session, exchange_google_code, google_authorization_url, google_enabled, google_state, read_session, session_profile, sync_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+class AssistantAsk(BaseModel):
+    question: str = Field(default="", max_length=2000)
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
+    context: str = Field(default="", max_length=15000)
+
+
+ASSISTANT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "answer": {"type": "string"},
+        "learning_summary": {"type": "string"},
+        "conclusions": {"type": "array", "items": {"type": "string"}},
+        "studied_articles": {"type": "array", "items": {"type": "string"}},
+        "uncertainties": {"type": "array", "items": {"type": "string"}},
+        "suggested_questions": {"type": "array", "items": {"type": "string"}},
+        "source_indexes": {"type": "array", "items": {"type": "integer"}},
+    },
+    "required": ["answer", "learning_summary", "conclusions", "studied_articles", "uncertainties", "suggested_questions", "source_indexes"],
+    "additionalProperties": False,
+}
+
+
+def _normalize_assistant_result(result: dict[str, Any]) -> dict[str, Any]:
+    result["answer"] = str(result.get("answer") or "我已经完成了这次检索，但暂时没有形成可确认的结论。")
+    result["learning_summary"] = str(result.get("learning_summary") or "已读取当前 Lab 的研究上下文。")
+    for key in ("conclusions", "studied_articles", "uncertainties", "suggested_questions"):
+        value = result.get(key)
+        result[key] = [str(item) for item in value] if isinstance(value, list) else []
+    indexes = result.get("source_indexes")
+    result["source_indexes"] = [int(index) for index in indexes if isinstance(index, (int, float, str)) and str(index).isdigit()] if isinstance(indexes, list) else []
+    return result
+
+
+def _audit_lab_action(db: Session, lab_id: str, actor: Optional[dict], action: str, target: Optional[str], details: dict) -> None:
+    actor_user = db.query(User).filter(User.email == (actor or {}).get("email", "").lower()).first()
+    db.add(LabAuditLog(id=f"audit-{secrets.token_urlsafe(12)}", lab_id=lab_id, actor_user_id=actor_user.id if actor_user else None, action=action, target=target, details=details, created_at=utc_now()))
 
 
 def _cross_site_cookie() -> bool:
@@ -153,6 +197,38 @@ def update_membership(user_id: str, lab_id: str, payload: LabMembershipUpdate, d
     return _membership_read(membership)
 
 
+@router.get("/api/labs/{lab_id}/memberships", response_model=list[LabMembershipRead])
+def lab_memberships(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabMembershipRead]:
+    require_lab_admin(request, lab_id, db)
+    if db.get(Lab, lab_id) is None:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    memberships = db.query(LabMembership).join(LabMembership.user).join(LabMembership.lab).filter(LabMembership.lab_id == lab_id).order_by(LabMembership.created_at.desc()).all()
+    return [_membership_read(membership) for membership in memberships]
+
+
+@router.put("/api/labs/{lab_id}/memberships/{user_id}", response_model=LabMembershipRead)
+def update_lab_membership(lab_id: str, user_id: str, payload: LabMembershipUpdate, request: Request, db: Session = Depends(get_db)) -> LabMembershipRead:
+    actor = require_lab_admin(request, lab_id, db)
+    if payload.role not in {"lab_admin", "lab_user"}:
+        raise HTTPException(status_code=422, detail="Role must be lab_admin or lab_user")
+    user = db.get(User, user_id)
+    lab = db.get(Lab, lab_id)
+    if user is None or lab is None:
+        raise HTTPException(status_code=404, detail="User or lab not found")
+    membership = db.get(LabMembership, {"user_id": user_id, "lab_id": lab_id})
+    if membership is None:
+        membership = LabMembership(user_id=user_id, lab_id=lab_id, role=payload.role)
+        db.add(membership)
+    else:
+        membership.role = payload.role
+    if user.role != "system_admin":
+        user.role = payload.role
+    _audit_lab_action(db, lab_id, actor, "membership_role_changed", user.email, {"role": payload.role})
+    db.commit()
+    db.refresh(membership)
+    return _membership_read(membership)
+
+
 @router.get("/api/admin/invitations", response_model=list[LabInvitationRead])
 def admin_invitations(db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> list[LabInvitationRead]:
     invitations = db.query(LabInvitation).join(LabInvitation.lab).order_by(LabInvitation.created_at.desc()).all()
@@ -180,6 +256,48 @@ def create_invitation(payload: LabInvitationCreate, db: Session = Depends(get_db
         db.commit()
         db.refresh(item)
     return LabInvitationRead(id=item.id, email=item.email, lab_id=item.lab_id, lab_name=lab.name, role=item.role, status=item.status, created_at=item.created_at.isoformat())
+
+
+@router.get("/api/labs/{lab_id}/invitations", response_model=list[LabInvitationRead])
+def lab_invitations(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabInvitationRead]:
+    require_lab_admin(request, lab_id, db)
+    if db.get(Lab, lab_id) is None:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    invitations = db.query(LabInvitation).join(LabInvitation.lab).filter(LabInvitation.lab_id == lab_id).order_by(LabInvitation.created_at.desc()).all()
+    return [LabInvitationRead(id=item.id, email=item.email, lab_id=item.lab_id, lab_name=item.lab.name, role=item.role, status=item.status, created_at=item.created_at.isoformat()) for item in invitations]
+
+
+@router.post("/api/labs/{lab_id}/invitations", response_model=LabInvitationRead, status_code=status.HTTP_201_CREATED)
+def create_lab_invitation(lab_id: str, payload: LabInvitationCreate, request: Request, db: Session = Depends(get_db)) -> LabInvitationRead:
+    admin = require_lab_admin(request, lab_id, db)
+    email = payload.email.strip().lower()
+    if "@" not in email or payload.role not in {"lab_admin", "lab_user"}:
+        raise HTTPException(status_code=422, detail="Invalid email or role")
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    existing = db.query(LabInvitation).filter(LabInvitation.email == email, LabInvitation.lab_id == lab_id, LabInvitation.status == "pending").first()
+    if existing:
+        existing.role = payload.role
+        db.commit()
+        db.refresh(existing)
+        item = existing
+    else:
+        inviter = db.query(User).filter(User.email == (admin or {}).get("email", "").lower()).first()
+        item = LabInvitation(id=f"invite-{secrets.token_urlsafe(12)}", email=email, lab_id=lab_id, role=payload.role, invited_by=inviter.id if inviter else None)
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+    _audit_lab_action(db, lab_id, admin, "invitation_created", email, {"role": payload.role})
+    db.commit()
+    return LabInvitationRead(id=item.id, email=item.email, lab_id=item.lab_id, lab_name=lab.name, role=item.role, status=item.status, created_at=item.created_at.isoformat())
+
+
+@router.get("/api/labs/{lab_id}/audit-logs", response_model=list[LabAuditLogRead])
+def lab_audit_logs(lab_id: str, request: Request, db: Session = Depends(get_db)) -> list[LabAuditLogRead]:
+    require_lab_admin(request, lab_id, db)
+    entries = db.query(LabAuditLog).filter(LabAuditLog.lab_id == lab_id).order_by(LabAuditLog.created_at.desc()).limit(50).all()
+    return [LabAuditLogRead(id=item.id, lab_id=item.lab_id, actor_name=item.actor.name if item.actor else None, actor_email=item.actor.email if item.actor else None, action=item.action, target=item.target, details=item.details, created_at=item.created_at) for item in entries]
 
 
 @router.get("/health")
@@ -249,7 +367,8 @@ def version() -> dict[str, str]:
 @router.get("/api/ai/status")
 def ai_status() -> dict[str, object]:
     provider = active_provider()
-    return {"configured": provider != "rule_based", "provider": provider, "model": settings.openai_model, "web_search_enabled": settings.openai_ai_search_enabled}
+    assistant_provider = active_provider(purpose="assistant")
+    return {"configured": provider != "rule_based", "provider": provider, "model": active_model(provider), "assistant_provider": assistant_provider, "assistant_model": active_model(assistant_provider), "web_search_enabled": settings.openai_ai_search_enabled, "assistant_web_search_enabled": settings.assistant_web_search_enabled}
 
 
 @router.get("/api/ai/dify/check")
@@ -358,7 +477,7 @@ def month_changes(db: Session = Depends(get_db)) -> list[ChangeCard]:
 @router.get("/api/labs", response_model=list[LabRead])
 def labs(db: Session = Depends(get_db)) -> list[LabRead]:
     return [
-        LabRead(id=lab.id, name=lab.name, description=lab.description)
+        _lab_read(lab)
         for lab in db.scalars(select(Lab).order_by(Lab.name.asc())).all()
     ]
 
@@ -368,7 +487,175 @@ def lab_detail(lab_id: str, db: Session = Depends(get_db)) -> LabRead:
     lab = db.get(Lab, lab_id)
     if lab is None:
         raise HTTPException(status_code=404, detail="Lab not found")
-    return LabRead(id=lab.id, name=lab.name, description=lab.description)
+    return _lab_read(lab)
+
+
+@router.post("/api/labs/{lab_id}/assistant")
+def lab_assistant(lab_id: str, payload: AssistantAsk, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Snowy uses controlled research tools so the model can be switched without changing Lab logic."""
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status_code=404, detail="Lab not found")
+
+    watch_items = [link.watch_item.name for link in db.query(LabWatchItem).filter(LabWatchItem.lab_id == lab_id).all()]
+    profile = lab.profile
+    sources: list[dict[str, Any]] = []
+    web_search_used = False
+
+    def _evidence_dict(value: Any) -> dict[str, Any]:
+        if hasattr(value, "model_dump"):
+            dumped = value.model_dump()
+            return dumped if isinstance(dumped, dict) else {}
+        return value if isinstance(value, dict) else {}
+
+    def _change_payload(change: LabChangeCard) -> dict[str, Any]:
+        evidence = _evidence_dict(change.evidence[0]) if change.evidence else {}
+        existing = next((source for source in sources if source.get("url") == evidence.get("url") and source.get("title") == (evidence.get("source_title") or change.title)), None)
+        if existing is None:
+            existing = {"index": len(sources) + 1, "title": evidence.get("source_title") or change.title, "url": evidence.get("url")}
+            sources.append(existing)
+        return {"source_index": existing["index"], "change_id": change.id, "title": change.title, "summary": change.change_summary, "facts": change.new_facts[:3], "why_relevant": change.why_relevant, "impact": change.impact, "importance": change.importance}
+
+    def execute_tool(name: str, arguments: dict[str, Any]) -> Any:
+        if name == "get_lab_profile":
+            return {"lab_name": lab.name, "description": lab.description or "", "research_scope": profile.research_scope if profile else {}, "watchlist": profile.watchlist if profile else {}, "key_questions": profile.key_questions if profile else [], "followed_items": watch_items}
+        if name == "get_today_changes":
+            return {"date_scope": "today", "changes": [_change_payload(change) for change in lab_today_changes(lab_id, db)]}
+        if name == "search_lab_articles":
+            query = str(arguments.get("query", "")).strip().casefold()
+            if not query:
+                return {"error": "query is required"}
+            matches = []
+            for change in lab_month_changes(lab_id, db):
+                haystack = " ".join([change.title, change.change_summary, change.why_relevant, change.impact, *change.watch_items]).casefold()
+                if all(term in haystack for term in query.split()):
+                    matches.append(_change_payload(change))
+            return {"query": query, "matches": matches[:8]}
+        if name == "get_change_evidence":
+            change_id = str(arguments.get("change_id", ""))
+            for change in [*lab_today_changes(lab_id, db), *lab_month_changes(lab_id, db)]:
+                if change.id == change_id:
+                    return {"change": _change_payload(change), "evidence": [_evidence_dict(item) for item in change.evidence], "next_watch_points": change.next_watch_points}
+            return {"error": "change not found for this Lab"}
+        if name == "search_public_web":
+            nonlocal web_search_used
+            if not settings.assistant_web_search_enabled:
+                return {"error": "Public web search is disabled for this assistant."}
+            query = str(arguments.get("query", "")).strip()
+            try:
+                results = search_public_web(query, limit=5)
+            except Exception:
+                return {"error": "Public web search is temporarily unavailable."}
+            web_search_used = bool(results) or web_search_used
+            formatted = []
+            for item in results:
+                existing = next((source for source in sources if source.get("url") == item["url"]), None)
+                if existing is None:
+                    existing = {"index": len(sources) + 1, "title": item["title"], "url": item["url"]}
+                    sources.append(existing)
+                formatted.append({"source_index": existing["index"], **item})
+            return {"query": query, "results": formatted}
+        return {"error": f"unknown tool: {name}"}
+
+    tools = [
+        {"type": "function", "function": {"name": "get_lab_profile", "description": "Read this Lab's research scope, watchlist, key questions and followed items.", "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False}}},
+        {"type": "function", "function": {"name": "get_today_changes", "description": "Read the Lab changes published today. Use this before making a daily judgment.", "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False}}},
+        {"type": "function", "function": {"name": "search_lab_articles", "description": "Search this Lab's current-month changes by topic, company, person or technical phrase.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"], "additionalProperties": False}}},
+        {"type": "function", "function": {"name": "get_change_evidence", "description": "Read the source evidence and next watch points for one Lab change.", "parameters": {"type": "object", "properties": {"change_id": {"type": "string"}}, "required": ["change_id"], "additionalProperties": False}}},
+        {"type": "function", "function": {"name": "search_public_web", "description": "Search the public web for current information not covered by this Lab's stored sources. Use only when the question needs external or latest information.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"], "additionalProperties": False}}},
+    ]
+
+    question = payload.question.strip()
+    history = [
+        {"role": item.get("role", ""), "content": item.get("content", "").strip()[:4000]}
+        for item in payload.history
+        if item.get("role") in {"user", "assistant"} and item.get("content", "").strip()
+    ][-10:]
+    article_context = payload.context.strip()
+    if history:
+        transcript = "\n".join(f"{item['role']}: {item['content']}" for item in history)
+        user_request = f"This is a follow-up in the same conversation. Use the conversation history to resolve references such as '上面那篇文章' or '你刚才说的'.\nConversation history:\n{transcript}\n\nLatest user message: {question}"
+    else:
+        user_request = "The user just opened the assistant. Learn the Lab profile and today's changes, then briefly explain what you learned and what they can ask next." if not question else question
+    if article_context:
+        user_request += f"\n\nArticle context for this request:\n{article_context}"
+    system_prompt = f"""You are Snowy, a warm but rigorous research assistant for {lab.name}.
+Use the provided research tools before answering. When conversation history is present, continue that conversation instead of restarting with a generic Lab overview. Resolve references to earlier messages and articles using the history and tools. You may search the public web when the Lab sources do not cover the question or when the user asks for current external information. Do not invent facts or claim to have read anything that a tool did not return. Treat source facts and your inference separately. Every conclusion must cite one or more source_index values from tool results. If there are no today's changes, say so clearly.
+
+Return ONLY valid JSON with this shape:
+{json.dumps(ASSISTANT_SCHEMA, ensure_ascii=False)}
+The answer should be concise Chinese. studied_articles should contain article titles, conclusions should be decision-relevant, uncertainties should be explicit, and suggested_questions should be useful follow-ups."""
+    try:
+        final_text, provider = call_chat_agent(system_prompt, user_request, tools, execute_tool)
+        cleaned = final_text.strip().replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+        try:
+            result = parse_json_object(cleaned)
+        except (AIUnavailableError, json.JSONDecodeError):
+            # Never render a malformed JSON envelope as the user's answer.
+            # Recover its useful fields first; only keep raw text when it is
+            # clearly a normal non-JSON response.
+            try:
+                result = salvage_json_object(cleaned)
+            except AIUnavailableError:
+                result = {"answer": "DeepSeek 返回了无法解析的结构化结果，我已保留这次对话，但暂时不能可靠总结。请重新提问一次。" if cleaned.lstrip().startswith("{") else cleaned}
+        if not isinstance(result, dict):
+            result = {"answer": str(result)}
+        result = _normalize_assistant_result(result)
+        result["source_indexes"] = [int(index) for index in result.get("source_indexes", []) if 1 <= int(index) <= len(sources)]
+        result["provider"] = provider
+        result["answer_source"] = "deepseek_agent" if provider == "deepseek" else f"{provider}_agent"
+        result["degraded"] = False
+        result["web_search_used"] = web_search_used
+    except (AIUnavailableError, KeyError, TypeError, ValueError) as error:
+        logger.warning("Snowy assistant fell back to local rules for lab %s: %s", lab_id, error)
+        today_context = execute_tool("get_today_changes", {})
+        titles = [item["title"] for item in today_context["changes"]]
+        result = {
+            "answer": (f"DeepSeek 暂时没有返回结果。我先用本地已采集数据了解了 {lab.name} 的研究范围和 {len(titles)} 条今日变化。" if not question else f"DeepSeek 暂时没有返回结果。以下只是基于本地已采集数据的临时判断：当前 {lab.name} 有 {len(titles)} 条相关信号；这个问题需要结合更多来源继续验证。"),
+            "learning_summary": f"已读取 Lab Profile、{len(titles)} 条今日变化和 {len(watch_items)} 个关注项。",
+            "conclusions": [item["impact"] for item in today_context["changes"][:3]] or ["今天暂无新的 Lab 相关变化。"],
+            "studied_articles": titles,
+            "uncertainties": ["当前仅基于已采集的公开资料，不能替代工程或客户验证。"],
+            "suggested_questions": ["今天最值得关注的变化是什么？", "哪些判断还缺少证据？", "接下来应该继续追踪什么？"],
+            "source_indexes": list(range(1, min(len(sources), 3) + 1)),
+            "provider": "rule_based",
+            "answer_source": "rule_based_fallback",
+            "degraded": True,
+            "web_search_used": web_search_used,
+        }
+    return {**result, "assistant": "Snowy", "lab_id": lab_id, "lab_name": lab.name, "studied_count": len(sources), "sources": sources}
+
+
+def _lab_read(lab: Lab) -> LabRead:
+    admin = next((membership for membership in lab.memberships if membership.role == "lab_admin"), None)
+    pending_admin = next((invitation for invitation in lab.invitations if invitation.role == "lab_admin" and invitation.status == "pending"), None) if hasattr(lab, "invitations") else None
+    return LabRead(id=lab.id, name=lab.name, description=lab.description, admin_email=admin.user.email if admin else (pending_admin.email if pending_admin else None), admin_name=admin.user.name if admin else None)
+
+
+def _assign_lab_admin(db: Session, lab: Lab, email: Optional[str]) -> None:
+    if email is None:
+        return
+    normalized = email.strip().lower()
+    if not normalized or "@" not in normalized:
+        raise HTTPException(status_code=422, detail="Valid administrator email is required")
+    existing_admins = db.query(LabMembership).filter(LabMembership.lab_id == lab.id, LabMembership.role == "lab_admin").all()
+    for membership in existing_admins:
+        membership.role = "lab_user"
+    user = db.query(User).filter(User.email == normalized).first()
+    if user:
+        membership = db.get(LabMembership, {"user_id": user.id, "lab_id": lab.id})
+        if membership is None:
+            db.add(LabMembership(user_id=user.id, lab_id=lab.id, role="lab_admin"))
+        else:
+            membership.role = "lab_admin"
+        if user.role != "system_admin":
+            user.role = "lab_admin"
+    else:
+        pending = db.query(LabInvitation).filter(LabInvitation.email == normalized, LabInvitation.lab_id == lab.id, LabInvitation.status == "pending").first()
+        if pending:
+            pending.role = "lab_admin"
+        else:
+            db.add(LabInvitation(id=f"invite-{secrets.token_urlsafe(12)}", email=normalized, lab_id=lab.id, role="lab_admin", status="pending"))
 
 
 @router.post("/api/admin/labs", response_model=LabRead, status_code=status.HTTP_201_CREATED)
@@ -381,9 +668,11 @@ def create_lab(payload: LabCreate, db: Session = Depends(get_db), _: Optional[di
         raise HTTPException(status_code=409, detail="Lab already exists")
     lab = Lab(id=lab_id, name=name, description=payload.description.strip() if payload.description else None)
     db.add(lab)
+    db.flush()
+    _assign_lab_admin(db, lab, payload.admin_email)
     db.commit()
     db.refresh(lab)
-    return LabRead(id=lab.id, name=lab.name, description=lab.description)
+    return _lab_read(lab)
 
 
 @router.put("/api/admin/labs/{lab_id}", response_model=LabRead)
@@ -397,9 +686,10 @@ def update_lab(lab_id: str, payload: LabUpdate, db: Session = Depends(get_db), _
         lab.name = payload.name.strip()
     if payload.description is not None:
         lab.description = payload.description.strip()
+    _assign_lab_admin(db, lab, payload.admin_email)
     db.commit()
     db.refresh(lab)
-    return LabRead(id=lab.id, name=lab.name, description=lab.description)
+    return _lab_read(lab)
 
 
 @router.delete("/api/admin/labs/{lab_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -492,11 +782,87 @@ def recent_documents(db: Session = Depends(get_db)) -> list[DocumentRead]:
 def admin_sources(db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> list[SourceRead]:
     result = []
     for source in db.scalars(select(Source).options(selectinload(Source.documents)).order_by(Source.title.asc())).all():
-        docs = list(source.documents)
-        published = [document.published_at for document in docs if document.published_at]
-        fetched = [document.fetched_at for document in docs if document.fetched_at]
-        result.append(SourceRead(id=source.id, source_type=source.source_type, title=source.title, url=source.url, format=(source.raw_metadata or {}).get("format"), document_count=len(docs), latest_published_at=max(published) if published else None, latest_fetched_at=max(fetched) if fetched else None, status="有数据" if docs else ("可抓取" if source.url and (source.raw_metadata or {}).get("format") else "未配置")))
+        result.append(_to_source_read(source))
     return result
+
+
+def _to_source_read(source: Source) -> SourceRead:
+    docs = list(source.documents)
+    published = [document.published_at for document in docs if document.published_at]
+    fetched = [document.fetched_at for document in docs if document.fetched_at]
+    source_format = (source.raw_metadata or {}).get("format")
+    status_label = "已停用" if not source.enabled else ("异常" if source.last_error else ("有数据" if docs else ("需 API Key" if source_format == "patentsview" and not settings.patentsview_api_key else ("可抓取" if source.url and source_format else "未配置"))))
+    return SourceRead(id=source.id, source_type=source.source_type, title=source.title, url=source.url, format=source_format, document_count=len(docs), latest_published_at=max(published) if published else None, latest_fetched_at=max(fetched) if fetched else None, status=status_label, enabled=source.enabled, last_error=source.last_error, last_checked_at=source.last_checked_at)
+
+
+@router.put("/api/admin/sources/{source_id}/enabled", response_model=SourceRead)
+def set_source_enabled(source_id: str, enabled: bool, db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> SourceRead:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    source.enabled = enabled
+    db.commit()
+    db.refresh(source)
+    source.documents = list(db.scalars(select(Document).where(Document.source_id == source_id)).all())
+    return _to_source_read(source)
+
+
+@router.post("/api/admin/sources/{source_id}/run", response_model=IngestResult)
+def run_single_source(source_id: str, db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> IngestResult:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if not source.enabled:
+        raise HTTPException(status_code=409, detail="Source is disabled")
+    result = ingest_source(db, source)
+    source.last_checked_at = utc_now()
+    source.last_error = result.get("error")
+    db.commit()
+    return IngestResult(source_id=source.id, source_title=source.title, **result)
+
+
+@router.post("/api/admin/sources/{source_id}/test")
+def test_source(source_id: str, db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> dict[str, object]:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if not source.url:
+        return {"ok": False, "status": "skipped", "error": "source has no URL", "message": "该来源没有配置地址。"}
+    format_name = (source.raw_metadata or {}).get("format")
+    if format_name == "patentsview" and not settings.patentsview_api_key:
+        return {"ok": False, "status": "skipped", "error": "PATENTSVIEW_API_KEY is not configured", "message": "PatentsView 需要配置 API Key。"}
+    try:
+        headers = {"X-Api-Key": settings.patentsview_api_key} if format_name == "patentsview" and settings.patentsview_api_key else None
+        _, content_type = fetch_url(source.url, headers)
+        source.last_checked_at = utc_now()
+        source.last_error = None
+        db.commit()
+        return {"ok": True, "status": "ok", "error": None, "content_type": content_type, "message": "连接成功，未写入资料。"}
+    except Exception as error:
+        source.last_checked_at = utc_now()
+        source.last_error = str(error)
+        db.commit()
+        return {"ok": False, "status": "error", "error": str(error), "message": "连接失败，请检查地址或认证配置。"}
+
+
+@router.delete("/api/admin/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_source(source_id: str, db: Session = Depends(get_db), _: Optional[dict] = Depends(require_admin)) -> Response:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    documents = db.scalars(select(Document).where(Document.source_id == source_id)).all()
+    document_ids = {document.id for document in documents}
+    changes = db.scalars(select(Change)).all()
+    change_ids = {change.id for change in changes if any(isinstance(item, dict) and item.get("source_id") == source_id for item in (change.evidence or []))}
+    if change_ids:
+        db.query(LabChangeInterpretation).filter(LabChangeInterpretation.change_id.in_(change_ids)).delete(synchronize_session=False)
+        db.query(Change).filter(Change.id.in_(change_ids)).delete(synchronize_session=False)
+    if document_ids:
+        db.query(Analysis).filter(Analysis.document_id.in_(document_ids)).delete(synchronize_session=False)
+        db.query(Document).filter(Document.id.in_(document_ids)).delete(synchronize_session=False)
+    db.delete(source)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _to_document_read(document: Document) -> DocumentRead:
@@ -530,7 +896,7 @@ def run_ingestion(source_id: Optional[str] = None, db: Session = Depends(get_db)
     query = select(Source).order_by(Source.title.asc())
     if source_id:
         query = query.where(Source.id == source_id)
-    sources = db.scalars(query).all()
+    sources = [source for source in db.scalars(query).all() if source.enabled]
     if source_id and not sources:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
     results = []

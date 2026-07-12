@@ -1,8 +1,9 @@
-import { getLabTodayChanges, getLabMonthChanges } from "../../lib/api";
+import { getLabWeekChanges, getLabMonthChanges } from "../../lib/api";
 import FollowedItems from "./FollowedItems";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser, getLabWatchItems } from "../../lib/serverApi";
+import SnowyAssistant from "./SnowyAssistant";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export default async function LabPage({ params }: { params: Promise<{ labId: str
   const user = await getCurrentUser();
   if (!user.authenticated) redirect("/");
   const { labId } = await params;
-  const [changes, monthChanges, watchItems] = await Promise.all([getLabTodayChanges(labId), getLabMonthChanges(labId), getLabWatchItems(labId)]);
+  const [changes, monthChanges, watchItems] = await Promise.all([getLabWeekChanges(labId), getLabMonthChanges(labId), getLabWatchItems(labId)]);
   const labName = user.lab_names[user.lab_ids.indexOf(labId)] || (labId === "lab-glass-core" ? "Glass Core Lab" : labId);
 
   function changeTypeLabel(change: { title: string; watch_items: string[] }) {
@@ -33,12 +34,13 @@ export default async function LabPage({ params }: { params: Promise<{ labId: str
 
   return (
     <>
-      <section className="radarHero labHero"><div><div className="eyebrow">MY LAB · {labName.toUpperCase()}</div><h1>今天有哪些变化值得关注？</h1><p>系统从你关注的企业、教授和学术会议中筛选信号，只把与 {labName} 研究范围相关的变化放到这里。</p></div><div className="heroInsight"><strong>今日判断</strong><span>{changes.length ? `${labName} 今天有 ${changes.length} 条相关变化，下面会分别说明它为什么相关，以及对当前判断有什么影响。` : `${labName} 今天暂时没有新的相关变化，系统会继续观察企业、教授和学术会议的公开信号。`}</span></div></section>
+      <section className="radarHero labHero"><div><div className="eyebrow">MY LAB · {labName.toUpperCase()}</div><h1>本周有哪些变化值得关注？</h1><p>系统从你关注的企业、教授和学术会议中筛选信号，只把与 {labName} 研究范围相关的变化放到这里。</p></div><div className="heroInsight"><strong>本周判断</strong><span>{changes.length ? `${labName} 本周有 ${changes.length} 条相关变化，下面会分别说明它为什么相关，以及对当前判断有什么影响。` : `${labName} 本周暂时没有新的相关变化，系统会继续观察企业、教授和学术会议的公开信号。`}</span></div></section>
       <FollowedItems initialItems={watchItems} labId={labId} />
-      <div className="sectionHeading labHeading"><div><span className="sectionLabel">LAB INTERPRETATION</span><h2>今日新增</h2></div><span className="updateCount">{changes.length} 条</span></div>
+      <div className="sectionHeading labHeading"><div><span className="sectionLabel">LAB INTERPRETATION · THIS WEEK</span><h2>本周新增</h2></div><span className="updateCount">{changes.length} 条</span></div>
       {changeList(changes)}
       <div className="sectionHeading labHeading weeklyLabHeading"><div><span className="sectionLabel">THIS MONTH</span><h2>本月新增</h2></div><span className="updateCount">{monthChanges.length} 条</span></div>
       {changeList(monthChanges)}
+      <SnowyAssistant labId={labId} labName={labName} />
     </>
   );
 }

@@ -10,7 +10,7 @@ const translations: Record<string, { en: string; ja: string }> = {
   "今日发生了什么？": { en: "What happened today?", ja: "今日何が起きた？" },
   "今日热点": { en: "Today’s Radar", ja: "今日の注目情報" },
   "今日新增": { en: "Added today", ja: "今日の追加" },
-  "本周新增": { en: "Added this month", ja: "今月の追加" },
+  "本周新增": { en: "Added this week", ja: "今週の追加" },
   "本月新增": { en: "Added this month", ja: "今月の追加" },
   "为什么相关": { en: "Why it matters", ja: "関連する理由" },
   "判断影响": { en: "Impact on the lab", ja: "Labへの影響" },

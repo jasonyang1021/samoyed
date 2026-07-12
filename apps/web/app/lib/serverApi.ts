@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import type { AIStatus, AuthUser, Lab, LabInvitation, LabMembership, RadarRun, ScheduleSettings, SourceRecord, WatchItem } from "./api";
+import type { AIStatus, AuthUser, Lab, LabAuditLog, LabInvitation, LabMembership, RadarRun, ScheduleSettings, SourceRecord, WatchItem } from "./api";
 
 const base = process.env.API_INTERNAL_BASE_URL ?? "http://localhost:8000";
 
@@ -19,6 +19,9 @@ export function getLabs() { return serverGet<Lab[]>("/api/labs"); }
 export function getLab(labId: string) { return serverGet<Lab>(`/api/labs/${labId}`); }
 export function getLabWatchItems(labId: string) { return serverGet<WatchItem[]>(`/api/labs/${labId}/watch-items`); }
 export function getAdminSources() { return serverGet<SourceRecord[]>("/api/admin/sources"); }
+export function getLabMemberships(labId: string) { return serverGet<LabMembership[]>(`/api/labs/${encodeURIComponent(labId)}/memberships`); }
+export function getLabInvitations(labId: string) { return serverGet<LabInvitation[]>(`/api/labs/${encodeURIComponent(labId)}/invitations`); }
+export function getLabAuditLogs(labId: string) { return serverGet<LabAuditLog[]>(`/api/labs/${encodeURIComponent(labId)}/audit-logs`); }
 
 export async function getCurrentUser() {
   const cookieStore = await cookies();

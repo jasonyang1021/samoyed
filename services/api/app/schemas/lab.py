@@ -10,16 +10,20 @@ class LabRead(BaseModel):
     id: str
     name: str
     description: Optional[str]
+    admin_email: Optional[str] = None
+    admin_name: Optional[str] = None
 
 
 class LabCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    admin_email: Optional[str] = None
 
 
 class LabUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    admin_email: Optional[str] = None
 
 
 class LabWatchItemCreate(BaseModel):

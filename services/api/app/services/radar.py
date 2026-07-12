@@ -14,13 +14,15 @@ from app.services.ingestion import ingest_source
 
 def run_radar(db: Session) -> RadarRun:
     run = RadarRun(id=f"run-{hashlib.sha256(utc_now().isoformat().encode('utf-8')).hexdigest()[:24]}", started_at=utc_now(), status="running", errors=[])
-    sources = [source for source in db.scalars(select(Source).order_by(Source.title.asc())).all() if (source.raw_metadata or {}).get("format") not in {None, "ai_search"}]
+    sources = [source for source in db.scalars(select(Source).order_by(Source.title.asc())).all() if source.enabled and (source.raw_metadata or {}).get("format") not in {None, "ai_search"}]
     run.source_count = len(sources)
     db.add(run)
     db.commit()
     try:
         for source in sources:
             result = ingest_source(db, source)
+            source.last_checked_at = utc_now()
+            source.last_error = result.get("error")
             run.documents_fetched += int(result.get("fetched", 0))
             run.documents_created += int(result.get("created", 0))
             if result.get("status") == "error":

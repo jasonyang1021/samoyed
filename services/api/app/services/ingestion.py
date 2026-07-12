@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Callable
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.models import Document, Source, utc_now
 
 Fetcher = Callable[[str], tuple[bytes, str]]
@@ -25,6 +27,7 @@ class _PageParser(HTMLParser):
         self.text: list[str] = []
         self.authors: list[str] = []
         self.published: str | None = None
+        self.canonical_url: str | None = None
         self._active_tag: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -36,6 +39,10 @@ class _PageParser(HTMLParser):
                 self.authors.append(value)
             if key in {"article:published_time", "citation_publication_date", "date"} and value:
                 self.published = value
+            if key == "og:url" and value:
+                self.canonical_url = value.strip()
+        if tag == "link" and "canonical" in (attributes.get("rel") or "").lower() and attributes.get("href"):
+            self.canonical_url = str(attributes["href"]).strip()
         if tag in {"title", "h1", "h2", "h3", "p", "li"}:
             self._active_tag = tag
 
@@ -80,12 +87,14 @@ def _parse_html(payload: bytes, source_url: str) -> list[dict[str, object]]:
         title = title.split(" | ", 1)[0].strip()
     content = html.unescape("\n".join(dict.fromkeys(parser.text)))
     authors = list(dict.fromkeys(part.strip() for value in parser.authors for part in value.split(",") if part.strip()))
-    return [{"title": title, "url": source_url, "content": content or "暂无网页正文，请打开原文查看完整内容。", "content_level": "full_text" if content else "metadata", "published_at": _parse_datetime(parser.published), "authors": authors}]
+    return [{"title": title, "url": parser.canonical_url or source_url, "content": content or "暂无网页正文，请打开原文查看完整内容。", "content_level": "full_text" if content else "metadata", "published_at": _parse_datetime(parser.published), "authors": authors}]
 
 
-def fetch_url(url: str) -> tuple[bytes, str]:
-    request = Request(url, headers={"User-Agent": "AI-Research-Radar/0.1"})
-    with urlopen(request, timeout=15) as response:
+def fetch_url(url: str, extra_headers: dict[str, str] | None = None, *, timeout: int = 15) -> tuple[bytes, str]:
+    headers = {"User-Agent": "AI-Research-Radar/0.1"}
+    headers.update(extra_headers or {})
+    request = Request(url, headers=headers)
+    with urlopen(request, timeout=timeout) as response:
         return response.read(), response.headers.get_content_type()
 
 
@@ -193,6 +202,51 @@ def _parse_google_patents(payload: bytes) -> list[dict[str, object]]:
     return documents
 
 
+def _parse_semantic_scholar(payload: bytes) -> list[dict[str, object]]:
+    data = json.loads(payload.decode("utf-8"))
+    documents = []
+    for item in data.get("data", []) if isinstance(data, dict) else []:
+        if not isinstance(item, dict) or not item.get("title"):
+            continue
+        url = item.get("url") or (f"https://www.semanticscholar.org/paper/{item.get('paperId')}" if item.get("paperId") else None)
+        published = _parse_datetime(item.get("publicationDate"))
+        if url and published:
+            documents.append({"title": str(item["title"]), "url": str(url), "content": clean_markup(str(item.get("abstract") or "暂无摘要，请打开原文查看完整内容。")), "content_level": "abstract" if item.get("abstract") else "metadata", "published_at": published, "authors": [str(author.get("name")) for author in item.get("authors", []) if isinstance(author, dict) and author.get("name")]})
+    return documents
+
+
+def _parse_europe_pmc(payload: bytes) -> list[dict[str, object]]:
+    data = json.loads(payload.decode("utf-8"))
+    results = ((data.get("resultList") or {}).get("result", [])) if isinstance(data, dict) else []
+    documents = []
+    for item in results:
+        if not isinstance(item, dict) or not item.get("title"):
+            continue
+        identifier = item.get("doi") or item.get("pmcid") or item.get("id")
+        if not identifier:
+            continue
+        url = f"https://doi.org/{identifier}" if item.get("doi") else f"https://europepmc.org/article/{'PMC' if item.get('pmcid') else 'MED'}/{identifier}"
+        published = _parse_datetime(str(item.get("firstPublicationDate") or item.get("electronicPublicationDate") or ""))
+        if published:
+            documents.append({"title": str(item["title"]), "url": url, "content": clean_markup(str(item.get("abstractText") or "暂无摘要，请打开原文查看完整内容。")), "content_level": "abstract" if item.get("abstractText") else "metadata", "published_at": published, "authors": [str(item.get("authorString"))] if item.get("authorString") else []})
+    return documents
+
+
+def _parse_patentsview(payload: bytes) -> list[dict[str, object]]:
+    data = json.loads(payload.decode("utf-8"))
+    patents = data.get("patents") or data.get("results") or [] if isinstance(data, dict) else []
+    documents = []
+    for item in patents:
+        if not isinstance(item, dict):
+            continue
+        number = item.get("patent_id") or item.get("patent_number") or item.get("publication_number")
+        title = item.get("patent_title") or item.get("title")
+        published = _parse_datetime(str(item.get("patent_date") or item.get("publication_date") or ""))
+        if number and title and published:
+            documents.append({"title": str(title), "url": f"https://patents.google.com/patent/{number}/en", "content": clean_markup(str(item.get("patent_abstract") or item.get("abstract") or "Patent record from PatentsView.")), "content_level": "abstract", "published_at": published, "authors": []})
+    return documents
+
+
 def parse_payload(payload: bytes, content_type: str, format_name: str | None = None, source_url: str = "") -> list[dict[str, object]]:
     if format_name == "html":
         return _parse_html(payload, source_url)
@@ -200,9 +254,38 @@ def parse_payload(payload: bytes, content_type: str, format_name: str | None = N
         return _parse_openalex(payload)
     if format_name == "google_patents":
         return _parse_google_patents(payload)
+    if format_name == "semantic_scholar":
+        return _parse_semantic_scholar(payload)
+    if format_name == "europe_pmc":
+        return _parse_europe_pmc(payload)
+    if format_name == "patentsview":
+        return _parse_patentsview(payload)
     if format_name in {"json", "crossref"} or "json" in content_type:
         return _parse_json(payload)
     return _parse_xml(payload)
+
+
+AGGREGATOR_HOSTS = {"news.google.com", "finance.biggo.com", "www.biggo.com", "biggo.com"}
+
+
+def _enrich_aggregated_record(record: dict[str, object], fetcher: Fetcher) -> dict[str, object]:
+    """Follow common feed/aggregator links and keep the publisher's article URL/content."""
+    original_url = str(record.get("url") or "")
+    host = urlparse(original_url).netloc.lower().split(":", 1)[0]
+    if host not in AGGREGATOR_HOSTS:
+        return record
+    try:
+        payload, content_type = fetcher(original_url, timeout=4) if fetcher is fetch_url else fetcher(original_url)
+        if "html" not in content_type:
+            return record
+        page = parse_payload(payload, content_type, "html", original_url)
+        if not page:
+            return record
+        enriched = dict(record)
+        enriched.update({key: page[0][key] for key in ("url", "title", "content", "content_level", "authors") if page[0].get(key)})
+        return enriched
+    except Exception:
+        return record
 
 
 def ingest_source(db: Session, source: Source, fetcher: Fetcher = fetch_url) -> dict[str, object]:
@@ -211,14 +294,23 @@ def ingest_source(db: Session, source: Source, fetcher: Fetcher = fetch_url) -> 
     format_name = (source.raw_metadata or {}).get("format")
     if not format_name:
         return {"fetched": 0, "created": 0, "duplicates": 0, "status": "skipped", "error": "source has no ingestion format"}
+    if format_name == "patentsview" and not settings.patentsview_api_key:
+        return {"fetched": 0, "created": 0, "duplicates": 0, "status": "skipped", "error": "PATENTSVIEW_API_KEY is not configured"}
     try:
-        payload, content_type = fetcher(source.url)
+        headers = {"X-Api-Key": settings.patentsview_api_key} if format_name == "patentsview" and settings.patentsview_api_key else None
+        payload, content_type = fetch_url(source.url, headers) if fetcher is fetch_url else fetcher(source.url)
         records = parse_payload(payload, content_type, format_name, source.url)
         created = 0
         duplicates = 0
         seen_urls: set[str] = set()
         seen_fingerprints: set[str] = set()
+        article_enrich_budget = 20
         for record in records:
+            record_url = str(record.get("url") or "")
+            record_host = urlparse(record_url).netloc.lower().split(":", 1)[0]
+            if article_enrich_budget > 0 and record_host in AGGREGATOR_HOSTS:
+                record = _enrich_aggregated_record(record, fetch_url if fetcher is fetch_url else fetcher)
+                article_enrich_budget -= 1
             canonical_url = str(record["url"] or source.url)
             title = str(record["title"])
             content = str(record["content"])

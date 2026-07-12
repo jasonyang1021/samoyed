@@ -32,6 +32,20 @@ export type SourceRecord = {
   latest_published_at: string | null;
   latest_fetched_at: string | null;
   status: string;
+  enabled: boolean;
+  last_error: string | null;
+  last_checked_at: string | null;
+};
+
+export type LabAuditLog = {
+  id: string;
+  lab_id: string;
+  actor_name: string | null;
+  actor_email: string | null;
+  action: string;
+  target: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
 };
 
 export type RadarRun = {
@@ -66,7 +80,7 @@ export type AuthUser = {
   lab_names: string[];
 };
 
-export type Lab = { id: string; name: string; description: string | null };
+export type Lab = { id: string; name: string; description: string | null; admin_email?: string | null; admin_name?: string | null };
 
 export type ScheduleSettings = {
   enabled: boolean;
@@ -181,6 +195,10 @@ export function getLabTodayChanges(labId: string) {
   return fetchJson<LabChangeCard[]>(`/api/labs/${labId}/changes/today`);
 }
 
+export function getLabWeekChanges(labId: string) {
+  return fetchJson<LabChangeCard[]>(`/api/labs/${labId}/changes/week`);
+}
+
 export function getLabMonthChanges(labId: string) {
   return fetchJson<LabChangeCard[]>(`/api/labs/${labId}/changes/month`);
 }
@@ -232,11 +250,40 @@ export function updateMembership(userId: string, labId: string, role: LabMembers
   return putJson<LabMembership>(`/api/admin/memberships/${encodeURIComponent(userId)}/${encodeURIComponent(labId)}`, { role });
 }
 
-export function createLab(payload: { name: string; description: string }) {
+export function updateLabMembership(labId: string, userId: string, role: LabMembership["role"]) {
+  return putJson<LabMembership>(`/api/labs/${encodeURIComponent(labId)}/memberships/${encodeURIComponent(userId)}`, { role });
+}
+
+export function createLabInvitation(payload: Pick<LabInvitation, "email" | "lab_id" | "role">) {
+  return postJson<LabInvitation>(`/api/labs/${encodeURIComponent(payload.lab_id)}/invitations`, payload);
+}
+
+export async function deleteSource(sourceId: string) {
+  const response = await fetch(`${apiBaseUrl()}/api/admin/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE", credentials: "include" });
+  if (!response.ok) throw new Error("API request failed");
+}
+
+export function setSourceEnabled(sourceId: string, enabled: boolean) {
+  return putJson<SourceRecord>(`/api/admin/sources/${encodeURIComponent(sourceId)}/enabled?enabled=${enabled}`, {});
+}
+
+export function runSource(sourceId: string) {
+  return postJson<{ status: string; fetched: number; created: number; duplicates: number; error?: string }>(`/api/admin/sources/${encodeURIComponent(sourceId)}/run`);
+}
+
+export function testSource(sourceId: string) {
+  return postJson<{ ok: boolean; message: string; error?: string }>(`/api/admin/sources/${encodeURIComponent(sourceId)}/test`);
+}
+
+export function getLabAuditLogs(labId: string) {
+  return fetchJson<LabAuditLog[]>(`/api/labs/${encodeURIComponent(labId)}/audit-logs`);
+}
+
+export function createLab(payload: { name: string; description: string; admin_email?: string }) {
   return postJson<Lab>("/api/admin/labs", payload);
 }
 
-export function updateLab(labId: string, payload: { name: string; description: string }) {
+export function updateLab(labId: string, payload: { name: string; description: string; admin_email?: string }) {
   return putJson<Lab>(`/api/admin/labs/${encodeURIComponent(labId)}`, payload);
 }
 

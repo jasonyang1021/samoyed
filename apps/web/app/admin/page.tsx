@@ -1,16 +1,12 @@
 import {
   getAdminAIStatus,
-  getAdminInvitations,
-  getAdminMemberships,
   getAdminRadarRuns,
   getAdminScheduleSettings,
   getAdminSources,
   getCurrentUser,
   getLabs,
 } from "../lib/serverApi";
-import InvitationPanel from "./InvitationPanel";
 import LabManagementPanel from "./LabManagementPanel";
-import MembershipPanel from "./MembershipPanel";
 import RadarRunPanel from "./RadarRunPanel";
 import ScheduleSettingsPanel from "./ScheduleSettingsPanel";
 import SourcePanel from "./SourcePanel";
@@ -31,12 +27,10 @@ export default async function Admin() {
     );
   }
 
-  const [runs, aiStatus, scheduleSettings, memberships, invitations, labs, sources] = await Promise.all([
+  const [runs, aiStatus, scheduleSettings, labs, sources] = await Promise.all([
     getAdminRadarRuns(),
     getAdminAIStatus(),
     getAdminScheduleSettings(),
-    getAdminMemberships(),
-    getAdminInvitations(),
     getLabs(),
     getAdminSources(),
   ]);
@@ -57,16 +51,11 @@ export default async function Admin() {
       </div>
       <div className="adminKpis">
         <div><span>Research Labs</span><strong>{labs.length}</strong></div>
-        <div><span>Members</span><strong>{memberships.length}</strong></div>
         <div><span>Sources</span><strong>{sources.length}</strong></div>
         <div><span>Latest Run</span><strong>{latestRunStatus}</strong></div>
       </div>
       <LabManagementPanel initialLabs={labs} />
       <ScheduleSettingsPanel initialSettings={scheduleSettings} />
-      <div className="adminTwoCol">
-        <MembershipPanel initialMemberships={memberships} />
-        <InvitationPanel initialInvitations={invitations} />
-      </div>
       <SourcePanel sources={sources} />
       <RadarRunPanel initialRuns={runs} aiStatus={aiStatus} />
     </>

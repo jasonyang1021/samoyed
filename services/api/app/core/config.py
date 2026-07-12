@@ -14,10 +14,17 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5-mini"
     openai_ai_search_enabled: bool = True
     ai_provider: str = "rule_based"
+    assistant_provider: str = "deepseek"
+    assistant_web_search_enabled: bool = True
+    deepseek_api_key: Optional[str] = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_max_tool_turns: int = 6
     dify_base_url: str = "https://api.dify.ai/v1"
     dify_api_key: Optional[str] = None
     dify_search_api_key: Optional[str] = None
     dify_user: str = "research-radar"
+    patentsview_api_key: Optional[str] = None
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
     google_redirect_uri: str = "http://127.0.0.1:8000/api/auth/google/callback"

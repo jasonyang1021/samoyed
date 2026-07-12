@@ -88,30 +88,6 @@ def seed_database(db: Session) -> None:
 
     sources = [
         Source(
-            id="src-glass-core-engineering",
-            source_type="company_signal",
-            title="Glass core substrate engineering validation signal",
-            url="https://example.local/glass-core-engineering",
-            published_at=now,
-            raw_metadata={"seed": True},
-        ),
-        Source(
-            id="src-tgv-reliability",
-            source_type="paper_signal",
-            title="TGV reliability combined test signal",
-            url="https://example.local/tgv-reliability",
-            published_at=now,
-            raw_metadata={"seed": True},
-        ),
-        Source(
-            id="src-japan-supply-chain",
-            source_type="supply_chain_signal",
-            title="Japan glass core supply chain signal",
-            url="https://example.local/japan-supply-chain",
-            published_at=now,
-            raw_metadata={"seed": True},
-        ),
-        Source(
             id="src-arxiv-glass-core",
             source_type="paper_feed",
             title="arXiv · Glass Core research",
@@ -134,6 +110,22 @@ def seed_database(db: Session) -> None:
             url="https://api.openalex.org/works?search=glass%20substrate%20TGV%20advanced%20packaging&filter=from_publication_date:2026-01-01,to_publication_date:2026-12-31&per-page=50",
             published_at=now,
             raw_metadata={"seed": True, "format": "openalex"},
+        ),
+        Source(
+            id="src-semantic-scholar-glass-packaging",
+            source_type="paper_api",
+            title="Semantic Scholar · Glass substrate / TGV research",
+            url="https://api.semanticscholar.org/graph/v1/paper/search?query=glass%20substrate%20TGV%20advanced%20packaging&limit=100&fields=title,abstract,authors,publicationDate,url",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "semantic_scholar"},
+        ),
+        Source(
+            id="src-europe-pmc-packaging",
+            source_type="paper_api",
+            title="Europe PMC · Semiconductor packaging research",
+            url="https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=%28%22glass%20substrate%22%20OR%20TGV%20OR%20%22advanced%20packaging%22%29%20AND%20FIRST_PDATE:%5B2026-01-01%20TO%202026-12-31%5D&format=json&pageSize=100&resultType=core",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "europe_pmc"},
         ),
         Source(
             id="src-google-news-glass",
@@ -247,6 +239,14 @@ def seed_database(db: Session) -> None:
             published_at=now,
             raw_metadata={"seed": True, "format": "google_patents"},
         ),
+        Source(
+            id="src-patentsview-glass",
+            source_type="patent_api",
+            title="PatentsView · Glass substrate / TGV patents",
+            url="https://search.patentsview.org/api/v1/patent/?q=%7B%22_and%22:%5B%7B%22_text_any%22:%7B%22patent_title%22:%22glass%20substrate%20TGV%22%7D%7D,%7B%22_gte%22:%7B%22patent_date%22:%222026-01-01%22%7D%7D,%7B%22_lte%22:%7B%22patent_date%22:%222026-12-31%22%7D%7D%5D%7D&f=%5B%22patent_id%22,%22patent_title%22,%22patent_date%22%5D&o=%7B%22size%22:100%7D",
+            published_at=now,
+            raw_metadata={"seed": True, "format": "patentsview"},
+        ),
     ]
     for source in sources:
         existing_source = db.get(Source, source.id)
@@ -255,7 +255,7 @@ def seed_database(db: Session) -> None:
         elif source.id in {"src-arxiv-glass-core", "src-crossref-glass-core"}:
             existing_source.url = source.url
             existing_source.raw_metadata = source.raw_metadata
-        elif source.id in {"src-openalex-glass-packaging", "src-google-news-glass"}:
+        elif source.id in {"src-openalex-glass-packaging", "src-google-news-glass", "src-patentsview-glass"}:
             existing_source.url = source.url
             existing_source.raw_metadata = source.raw_metadata
         elif source.id.startswith(("src-arxiv-cpo", "src-arxiv-hbm", "src-google-news-cpo", "src-google-news-pcb", "src-google-news-mlcc", "src-google-news-hbm")):

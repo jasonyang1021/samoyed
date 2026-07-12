@@ -239,7 +239,13 @@ Docker 中 `API_INTERNAL_BASE_URL` 应指向 `http://api:8000`，浏览器端的
 
 | 变量 | 说明 |
 | --- | --- |
-| `AI_PROVIDER` | `rule_based`、`openai`、`dify` 或 `auto` |
+| `AI_PROVIDER` | 文章分析使用的 provider：`rule_based`、`deepseek`、`openai`、`dify` 或 `auto` |
+| `ASSISTANT_PROVIDER` | Snowy 助手使用的 provider；默认 `deepseek`，以后切换助手模型只改这里 |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key；Snowy Agent 使用 |
+| `DEEPSEEK_BASE_URL` | DeepSeek API 地址，默认 `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | DeepSeek 模型名称 |
+| `DEEPSEEK_MAX_TOOL_TURNS` | Snowy Agent 单次最多调用研究工具的轮数 |
+| `ASSISTANT_WEB_SEARCH_ENABLED` | 是否允许 Snowy 在 Lab 数据不足时搜索公开网页，默认 `true` |
 | `OPENAI_API_KEY` | OpenAI API Key |
 | `OPENAI_MODEL` | OpenAI Responses API 使用的模型 |
 | `OPENAI_AI_SEARCH_ENABLED` | 是否允许 AI 网页检索 |
@@ -247,6 +253,7 @@ Docker 中 `API_INTERNAL_BASE_URL` 应指向 `http://api:8000`，浏览器端的
 | `DIFY_API_KEY` | 文章分析 Workflow 的 API Key |
 | `DIFY_SEARCH_API_KEY` | 网页检索 Workflow 的 API Key |
 | `DIFY_USER` | Dify 请求使用的 user 标识 |
+| `PATENTSVIEW_API_KEY` | PatentsView PatentSearch API Key；未配置时该来源显示为“需 API Key” |
 
 ### 登录
 
@@ -307,8 +314,11 @@ curl http://localhost:8000/api/ai/dify/check
 - arXiv
 - Crossref
 - OpenAlex
+- Semantic Scholar
+- Europe PMC
 - Google News RSS
 - Google Patents 尝试接口
+- PatentsView（需要 `PATENTSVIEW_API_KEY`）
 - Intel Newsroom
 - Samsung Electro-Mechanics
 - IMAPS
