@@ -12,7 +12,7 @@ export default async function LabPage({ params }: { params: Promise<{ labId: str
   if (!user.authenticated) redirect("/");
   const { labId } = await params;
   const [changes, monthChanges, watchItems] = await Promise.all([getLabWeekChanges(labId), getLabMonthChanges(labId), getLabWatchItems(labId)]);
-  const labName = user.lab_names[user.lab_ids.indexOf(labId)] || (labId === "lab-glass-core" ? "Glass Core Lab" : labId);
+  const labName = user.lab_names[user.lab_ids.indexOf(labId)] || "Example Lab";
 
   function changeTypeLabel(change: { title: string; watch_items: string[] }) {
     const items = change.watch_items.join(" ");

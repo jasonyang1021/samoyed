@@ -43,6 +43,7 @@ class AssistantAsk(BaseModel):
     question: str = Field(default="", max_length=2000)
     history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
     context: str = Field(default="", max_length=15000)
+    locale: str = Field(default="zh-CN", max_length=10)
 
 
 ASSISTANT_SCHEMA = {
@@ -566,6 +567,7 @@ def lab_assistant(lab_id: str, payload: AssistantAsk, db: Session = Depends(get_
     ]
 
     question = payload.question.strip()
+    response_language = "English" if payload.locale == "en" else "Japanese" if payload.locale == "ja" else "Chinese"
     history = [
         {"role": item.get("role", ""), "content": item.get("content", "").strip()[:4000]}
         for item in payload.history
@@ -584,7 +586,7 @@ Use the provided research tools before answering. When conversation history is p
 
 Return ONLY valid JSON with this shape:
 {json.dumps(ASSISTANT_SCHEMA, ensure_ascii=False)}
-The answer should be concise Chinese. studied_articles should contain article titles, conclusions should be decision-relevant, uncertainties should be explicit, and suggested_questions should be useful follow-ups."""
+The answer and all user-facing fields must be concise {response_language}. studied_articles should contain article titles, conclusions should be decision-relevant, uncertainties should be explicit, and suggested_questions should be useful follow-ups."""
     try:
         final_text, provider = call_chat_agent(system_prompt, user_request, tools, execute_tool)
         cleaned = final_text.strip().replace("```json", "").replace("```JSON", "").replace("```", "").strip()
