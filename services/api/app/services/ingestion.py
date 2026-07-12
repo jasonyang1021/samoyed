@@ -3,11 +3,13 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -90,12 +92,32 @@ def _parse_html(payload: bytes, source_url: str) -> list[dict[str, object]]:
     return [{"title": title, "url": parser.canonical_url or source_url, "content": content or "暂无网页正文，请打开原文查看完整内容。", "content_level": "full_text" if content else "metadata", "published_at": _parse_datetime(parser.published), "authors": authors}]
 
 
-def fetch_url(url: str, extra_headers: dict[str, str] | None = None, *, timeout: int = 15) -> tuple[bytes, str]:
+def fetch_url(url: str, extra_headers: dict[str, str] | None = None, *, timeout: int | None = None) -> tuple[bytes, str]:
     headers = {"User-Agent": "AI-Research-Radar/0.1"}
     headers.update(extra_headers or {})
     request = Request(url, headers=headers)
-    with urlopen(request, timeout=timeout) as response:
-        return response.read(), response.headers.get_content_type()
+    request_timeout = timeout or settings.source_request_timeout_seconds
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=request_timeout) as response:
+                return response.read(), response.headers.get_content_type()
+        except HTTPError as error:
+            # Rate limits and transient upstream failures should be isolated to
+            # the source. Retry briefly when the provider explicitly permits
+            # it, then surface a useful error instead of an empty HTTPError.
+            if error.code in {429, 500, 502, 503, 504} and attempt < 2:
+                retry_after = error.headers.get("Retry-After") if error.headers else None
+                try:
+                    delay = min(2.0, max(0.25, float(retry_after or 0.5)))
+                except (TypeError, ValueError):
+                    delay = 0.5
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"HTTP {error.code} from {urlparse(url).netloc or 'source'}") from error
+        except (URLError, TimeoutError):
+            if attempt == 1:
+                raise
+            time.sleep(0.35)
 
 
 def _local_name(tag: str) -> str:
@@ -265,6 +287,32 @@ def parse_payload(payload: bytes, content_type: str, format_name: str | None = N
     return _parse_xml(payload)
 
 
+def _page_url(source_url: str, format_name: str, page: int, page_size: int) -> str:
+    """Build a second page for providers that expose conventional offsets."""
+    if page <= 0 or format_name in {"rss", "html", "google_patents", "patentsview"}:
+        return source_url
+    parsed = urlparse(source_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if format_name == "arxiv":
+        query["start"] = str(page * page_size)
+        query["max_results"] = str(page_size)
+    elif format_name == "openalex":
+        query["page"] = str(page + 1)
+        query["per-page"] = str(page_size)
+    elif format_name == "crossref":
+        query["offset"] = str(page * page_size)
+        query["rows"] = str(page_size)
+    elif format_name == "semantic_scholar":
+        query["offset"] = str(page * page_size)
+        query["limit"] = str(min(page_size, 100))
+    elif format_name == "europe_pmc":
+        query["page"] = str(page + 1)
+        query["pageSize"] = str(page_size)
+    else:
+        return source_url
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
 AGGREGATOR_HOSTS = {"news.google.com", "finance.biggo.com", "www.biggo.com", "biggo.com"}
 
 
@@ -275,7 +323,7 @@ def _enrich_aggregated_record(record: dict[str, object], fetcher: Fetcher) -> di
     if host not in AGGREGATOR_HOSTS:
         return record
     try:
-        payload, content_type = fetcher(original_url, timeout=4) if fetcher is fetch_url else fetcher(original_url)
+        payload, content_type = fetcher(original_url, timeout=settings.source_article_enrich_timeout_seconds) if fetcher is fetch_url else fetcher(original_url)
         if "html" not in content_type:
             return record
         page = parse_payload(payload, content_type, "html", original_url)
@@ -298,13 +346,25 @@ def ingest_source(db: Session, source: Source, fetcher: Fetcher = fetch_url) -> 
         return {"fetched": 0, "created": 0, "duplicates": 0, "status": "skipped", "error": "PATENTSVIEW_API_KEY is not configured"}
     try:
         headers = {"X-Api-Key": settings.patentsview_api_key} if format_name == "patentsview" and settings.patentsview_api_key else None
-        payload, content_type = fetch_url(source.url, headers) if fetcher is fetch_url else fetcher(source.url)
-        records = parse_payload(payload, content_type, format_name, source.url)
+        metadata = source.raw_metadata or {}
+        try:
+            max_pages = max(1, min(5, int(metadata.get("max_pages", 1))))
+            page_size = max(1, min(100, int(metadata.get("page_size", 50))))
+        except (TypeError, ValueError):
+            max_pages, page_size = 1, 50
+        records: list[dict[str, object]] = []
+        for page in range(max_pages):
+            page_url = _page_url(source.url, format_name, page, page_size)
+            payload, content_type = fetch_url(page_url, headers) if fetcher is fetch_url else fetcher(page_url)
+            page_records = parse_payload(payload, content_type, format_name, page_url)
+            records.extend(page_records)
+            if not page_records:
+                break
         created = 0
         duplicates = 0
         seen_urls: set[str] = set()
         seen_fingerprints: set[str] = set()
-        article_enrich_budget = 20
+        article_enrich_budget = settings.source_article_enrich_limit
         for record in records:
             record_url = str(record.get("url") or "")
             record_host = urlparse(record_url).netloc.lower().split(":", 1)[0]

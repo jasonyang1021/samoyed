@@ -65,6 +65,28 @@ def test_ingestion_deduplicates_by_url_and_fingerprint() -> None:
     assert second["duplicates"] == 1
 
 
+def test_ingestion_fetches_second_page_for_catalog_source() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    first_page = b'''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><title>HBM paper one</title><id>https://arxiv.org/abs/1234.0001</id><summary>First result.</summary><published>2026-07-11T00:00:00Z</published></entry></feed>'''
+    second_page = b'''<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><title>HBM paper two</title><id>https://arxiv.org/abs/1234.0002</id><summary>Second result.</summary><published>2026-07-10T00:00:00Z</published></entry></feed>'''
+    requested_urls: list[str] = []
+
+    def fetcher(url: str):
+        requested_urls.append(url)
+        return (second_page if "start=50" in url else first_page, "application/atom+xml")
+
+    with Session(engine) as db:
+        source = Source(id="src-paged", source_type="paper_feed", title="Paged paper feed", url="https://example.test/feed?start=0&max_results=50", raw_metadata={"format": "arxiv", "max_pages": 2, "page_size": 50})
+        db.add(source)
+        db.commit()
+        result = ingest_source(db, source, fetcher)
+
+    assert result["fetched"] == 2
+    assert result["created"] == 2
+    assert any("start=50" in url for url in requested_urls)
+
+
 def test_rule_analysis_generates_relevant_change(monkeypatch) -> None:
     from app.core.config import settings
 
